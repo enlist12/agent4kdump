@@ -1,7 +1,7 @@
 import os
 import glob
 import tiktoken
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 import chromadb
 from langchain_openai import OpenAIEmbeddings
 from langchain_experimental.text_splitter import SemanticChunker
@@ -47,8 +47,6 @@ class EmbeddingModel:
 
         self.linux_dir = linux_dir
         self.case_dir = case_dir
-        self.persist_linux_dir = persist_linux_dir
-        self.persist_case_dir = persist_case_dir
         self.model_name = model
 
         # OpenAI
@@ -174,9 +172,14 @@ class EmbeddingModel:
         doc_id = 0
         
         for doc in documents:
-            text = doc.page_content
-
-            emb = self.embed(text)
+            text = doc.get_content()
+            
+            try:
+                emb = self.embed(text)
+            
+            #Due to network err or too much tokens
+            except BadRequestError:
+                continue
 
             # Add to vector DB
             self.collection["case"].add(
@@ -261,14 +264,18 @@ class EmbeddingModel:
 #       Run standalone
 # ============================
 if __name__ == "__main__":
-    em = EmbeddingModel(data_dir="./data",persist_dir="db")
+    
+    crash = '''crash report'''
+    
+    api_key = "skxx"
+    em = EmbeddingModel(case_dir="./data",persist_case_dir="./db",api_key=api_key)
 
     print(">>> Building index…")
-    em.build_index()
+    em.build_index_for_case()
 
     print(">>> Test search")
-    hits = em.search("free bpf_map", top_k=3)
+    hits = em.search(crash, top_k=3, target="case")
     for h in hits:
-        print("---")
-        print(f"[{h['filepath']}] score={h['score']:.4f}")
+        print("-----------------------------------------------------------------")
+        print(f"Score: {h['fused_score']}")
         print(h["text"])
