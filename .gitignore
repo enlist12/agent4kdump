@@ -6,5 +6,6 @@ syzbotAgent/
 vmcore
 test.py
 kdump_analyze/
+!kdump_analyze/
 !kdump_analyze/kdump.py
 __pycache__/
