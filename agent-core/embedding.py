@@ -18,14 +18,19 @@ def calc_md5(text: str):
 class EmbeddingModel:
     def __init__(self, data_dir="./case", persist_dir="chroma_db", model="text-embedding-3-large", api_key=None):
 
+        self.logger = get_logger("embedding")
         self.data_dir = data_dir
         self.model_name = model
+        self.client = None
 
-        # OpenAI
-        self.client = OpenAI(api_key=api_key)
-
-        # For SemanticChunker
-        self.lc_embeddings = OpenAIEmbeddings(model=model, api_key=api_key)
+        try:
+            # OpenAI
+            self.client = OpenAI(api_key=api_key)
+            # Test the API key by making a simple request
+            self.client.models.list()
+        except Exception as e:
+            self.logger.error(f"Failed to create OpenAI client: {e}")
+            raise ValueError(f"Invalid API key or OpenAI connection failed: {e}")
         
         self.chroma_client = {}
         self.collection = {}
@@ -36,8 +41,6 @@ class EmbeddingModel:
             name="case",
             metadata={"hnsw:space": "cosine"}
         )
-        
-        self.logger = get_logger("embedding")
 
         # For BM25
         self.bm25_docs = []

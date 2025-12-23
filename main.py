@@ -1,14 +1,22 @@
 import argparse
 import yaml  
 from pathlib import Path
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'agent-core')))
 from log import *
+from embedding import EmbeddingModel
+from rich.console import Console
+from rich.table import Table
+from rich.prompt import Confirm
 
 main_log = get_logger("Main")
+console = Console()
 
 main_log.info("Starting kdump analysis tool...")
 
 arg = argparse.ArgumentParser()
-arg.add_argument('--config',type=str,required=True,help='the config file path')
+arg.add_argument('--config', type=str, required=True, help='the config file path')
 args = arg.parse_args()
 
 config_path = Path(args.config)
@@ -16,14 +24,69 @@ if not config_path.exists():
     raise FileNotFoundError(f"Config file {config_path} does not exist.")
 
 with open(config_path, 'r') as file:
-        config = yaml.safe_load(file)
+    config = yaml.safe_load(file)
         
-linux = config.get('linux_path','./linux')
-gdb = config.get('gdb_path','gdb')
-vmcore = config.get('vmcore','./vmcore')
-gdbserver = config.get('gdbserver','./gdbserver')
-syzbotData = config.get('syzbot_data','./syzbot_data')
+linux = config.get('linux_path', './linux')
+gdb = config.get('gdb_path', 'gdb')
+vmcore = config.get('vmcore', './vmcore')
+gdbserver = config.get('gdbserver', './gdbserver')
+syzbot_data = config.get('syzbot_data', './syzbot_data')
+enable_rag = config.get('enable_rag', False)
+api_key = config.get("api_key", None)
 
-"""
-Add comfirm code later
-"""
+# Display configuration table
+table = Table(title="Configuration Summary", show_header=True, header_style="bold magenta")
+table.add_column("Setting", style="cyan", width=20)
+table.add_column("Value", style="green")
+
+table.add_row("Linux Path", linux)
+table.add_row("GDB Path", gdb)
+table.add_row("VMCore", vmcore)
+table.add_row("GDB Server", gdbserver)
+table.add_row("Syzbot Data", syzbot_data)
+table.add_row("RAG Enabled", "Yes" if enable_rag else "No")
+table.add_row("API Key", "***" if api_key else "Not Set")
+
+console.print(table)
+
+if not Confirm.ask("\nProceed with this configuration?", default=True):
+    console.print("[yellow]Operation cancelled by user.[/yellow]")
+    sys.exit(0)
+
+# initialize rag
+if enable_rag:
+    if not api_key:
+        console.print("[red]Error: RAG is enabled but API key is not provided.[/red]")
+        main_log.error("RAG enabled but API key missing")
+        sys.exit(1)
+    
+    if not syzbot_data:
+        console.print("[red]Error: RAG is enabled but syzbot_data path is not provided.[/red]")
+        main_log.error("RAG enabled but syzbot_data path missing")
+        sys.exit(1)
+    
+    try:
+        main_log.info("Initializing RAG retrieval system...")
+        console.print("[cyan]Initializing RAG retrieval system...[/cyan]")
+        rag_retriever = EmbeddingModel(data_dir=syzbot_data, api_key=api_key)
+        
+        if not hasattr(rag_retriever, 'client') or rag_retriever.client is None:
+            raise ValueError("Failed to initialize OpenAI client, please check your API key")
+        
+        console.print("[cyan]Building RAG index...[/cyan]")
+        rag_retriever.build_index()
+        console.print("[green]✓ RAG system initialized successfully[/green]")
+        main_log.info("RAG system initialized successfully")
+    except Exception as e:
+        console.print(f"[red]Error initializing RAG system: {e}[/red]")
+        main_log.error(f"Failed to initialize RAG system: {e}")
+        if Confirm.ask("\nContinue without RAG?", default=False):
+            enable_rag = False
+            rag_retriever = None
+            console.print("[yellow]Continuing without RAG support[/yellow]")
+        else:
+            console.print("[red]Exiting...[/red]")
+            sys.exit(1)
+else:
+    rag_retriever = None
+    

@@ -25,6 +25,8 @@ class KdumpAnalysis:
         self.temp_file = temp_file
         
         self.crash_report = None
+        self.gdb = None
+        self.kdump = None
         
         if not exist:
             raise FileNotFoundError(f"kdump-gdbserver tool not found: {crash}")
@@ -93,8 +95,10 @@ class KdumpAnalysis:
                     
     def execute(self,command:str):
         try:
+            if not self.gdb :
+                return {'result': 'error', 'output': ['gdb is not alive']}
             self.logger.info(f"execute gdb command: {command}")
-            output = self.gdb.write(command)
+            output = self.gdb.write(command,timeout_sec=5)
             return self.parseOutput(output)
         except Exception as e:
             self.logger.error(f"Failed to execute gdb command: {command}, error: {e}")

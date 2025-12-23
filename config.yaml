@@ -1,0 +1,7 @@
+linux_path: ./linux
+gdb_path: gdb
+vmcore: ./vmcore
+gdbserver: ./gdbserver
+syzbot_data: ./data
+enable_rag: true
+api_key: 111
