@@ -1,7 +1,6 @@
 import os
 from openai import OpenAI, BadRequestError
 import chromadb
-from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 

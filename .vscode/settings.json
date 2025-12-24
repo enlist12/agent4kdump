@@ -1,0 +1,8 @@
+{
+    "python.analysis.extraPaths": [
+        "/root/.local/share/mamba/envs/haha/lib/python3.12/site-packages",
+        "./agent-core",
+        "./kdump_analyze",
+        "./"
+    ]
+}

@@ -1,7 +1,5 @@
 from pwn import *
 from pygdbmi.gdbcontroller import GdbController
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
 from log import *
 import shutil
 
@@ -15,10 +13,10 @@ end_word = ["---[ end"]
 temp_file = os.path.join(os.path.dirname(__file__),'temp_report.txt')
 
 class KdumpAnalysis:
-    def __init__(self,linux:str,crash:str,vmcore:str,port:int,gdb_path='gdb'):
+    def __init__(self,linux:str,kdump_server:str,vmcore:str,port=1234,gdb_path='gdb'):
         self.linux = linux
         
-        exist, self.crash = self.checkTool(crash)
+        exist, self.kdump_server = self.checkTool(kdump_server)
         
         self.crash_word = crash_word
         
@@ -29,7 +27,7 @@ class KdumpAnalysis:
         self.kdump = None
         
         if not exist:
-            raise FileNotFoundError(f"kdump-gdbserver tool not found: {crash}")
+            raise FileNotFoundError(f"kdump-gdbserver tool not found: {kdump_server}")
         
         exist, self.gdb_path = self.checkTool(gdb_path)
         
@@ -106,32 +104,32 @@ class KdumpAnalysis:
         
         
     def loadKdump(self):
-        self.logger.info("start up kdump server")
+        self.logger.info("Initializing kdump server")
         output = ''
         try:
-            self.kdump = process(f"{self.crash} -p {self.port} -f {self.vmcore}",shell=True)
+            self.kdump = process(f"{self.kdump_server} -p {self.port} -f {self.vmcore}",shell=True)
             output=self.kdump.recvuntil(f"target remote localhost:{self.port}".encode(),timeout=30)
         except:
-            self.logger.error("startup gdbserver failed!!")
-            return False,output.decode()
+            raise RuntimeError("Initialize kdump-gdbserver failed")
         if f"target remote localhost:{self.port}".encode() not in output:
-            return False,output.decode()
+            raise RuntimeError("kdump-gdbserver connect vmcore failed")
         else:
-            return True,"startup kdump-gdbserver success"
+            return
         
     
     def loadGDB(self):
+        self.logger.info("Initializing GDB")
         try:
             self.gdb = GdbController([self.gdb_path, "--interpreter=mi2"])
             res = self.execute(f'target remote:{self.port}')
             if res['result'] == 'error':
-                return False,res['output']
+                raise RuntimeError("connect to kdump-gdbserver failed")
             vmlinux = os.path.join(self.linux,'vmlinux')
             if not os.path.exists(vmlinux):
                 raise FileNotFoundError("vmlinux file not found")
             res = self.execute(f'file {vmlinux}')
             if res['result'] == 'error':
-                return False,res['output']
+                raise RuntimeError("failed to load vmlinux file")
             # to import linux smoothly
             script_dir = os.path.join(self.linux,'scripts','gdb')
             self.execute(f'python sys.path.insert(0, "{script_dir}")')
@@ -141,11 +139,11 @@ class KdumpAnalysis:
                 raise FileNotFoundError("vmlinux-gdb.py not found")
             res = self.execute(f'source {script_dir}')
             if res['result'] == 'error':
-                return False,res['output']
+                raise RuntimeError("failed to source vmlinux-gdb.py")
             self.execute('set pagination off')
-            return True,"startup gdb success"
+            return
         except:
-            return False,"startup gdb faliled!!"
+            raise RuntimeError("Initialize GDB failed")
         
     def extractAddress(self,text:str):
         '''
@@ -270,9 +268,7 @@ if __name__ == "__main__":
     gdb_path = 'gdb'
     kdump = KdumpAnalysis(linux,crash,vmcore,1234,gdb_path)
     kdump.loadKdump()
-    status,report = kdump.loadGDB()
-    print(status)
-    print(report)
+    kdump.loadGDB()
     # test gdbmi output
     res = kdump.execute("! ls")
     print(res)

@@ -9,4 +9,4 @@ kdump_analyze/*
 !kdump_analyze/kdump.py
 __pycache__/
 .gdb_history
-.vscode
+codequery
