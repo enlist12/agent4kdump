@@ -8,7 +8,11 @@ from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm
 from kdump import KdumpAnalysis
+import os
 from contextlib import contextmanager
+
+config_path = None
+kdump_analysis = None
 
 main_log = get_logger("Main")
 
@@ -44,6 +48,15 @@ kdump_server = config.get('kdump_server', './kdump_server')
 syzbot_data = config.get('syzbot_data', './syzbot_data')
 enable_rag = config.get('enable_rag', False)
 api_key = config.get("api_key", None)
+
+linux = os.path.abspath(linux)
+vmcore = os.path.abspath(vmcore)
+kdump_server = os.path.abspath(kdump_server)
+syzbot_data = os.path.abspath(syzbot_data)
+
+# Normalize gdb path
+if '/' in gdb:
+    gdb = os.path.abspath(gdb)
 
 # Display configuration table
 table = Table(title="Configuration Summary", show_header=True, header_style="bold magenta")
@@ -117,3 +130,9 @@ with catch_error("Loading kdump-gdbserver"):
 
 with catch_error("Loading GDB"):
     kdump_analysis.loadGDB()
+    
+config_path = os.path.join(linux,".config")
+
+# we need config to extract kernel function and macros
+if not os.path.exists(config_path):
+    raise FileNotFoundError(f".config file not found in linux path: {linux}")

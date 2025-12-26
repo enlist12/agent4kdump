@@ -1,5 +1,7 @@
 from pwn import *
 from pygdbmi.gdbcontroller import GdbController
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
 from log import *
 import shutil
 
@@ -55,11 +57,13 @@ class KdumpAnalysis:
         if tool_path:
             return True,tool_path
         
-        # assume tool in ./ path
-        local_path = os.path.join(os.path.dirname(__file__),tool)
+        # Direct Tool Path, not defined in PATH
+        if not os.path.isabs(tool):
+            tool_path = os.path.join(os.path.dirname(__file__),tool)
         
-        if os.path.exists(local_path) and os.access(local_path, os.X_OK):
-            return True,local_path
+        if os.path.exists(tool_path) and os.access(tool_path, os.X_OK):
+            return True,tool_path
+        
         return False,None
 
         
@@ -74,6 +78,7 @@ class KdumpAnalysis:
         output =  []
         result =  None
         for res in msg:
+            # such as ! ls, maybe need to filter commands
             if res['type'] == 'console' and res['payload'] != None:
                 output.append(res['payload'])
             elif res['type'] == 'output' and res['payload'] != None:
@@ -91,8 +96,9 @@ class KdumpAnalysis:
         return value
     
                     
-    def execute(self,command:str):
+    def execute(self,command:str)->dict:
         try:
+            # should not happen, just take a check
             if not self.gdb :
                 return {'result': 'error', 'output': ['gdb is not alive']}
             self.logger.info(f"execute gdb command: {command}")
@@ -265,7 +271,7 @@ if __name__ == "__main__":
     linux = '/root/agent4kdump/kernel/linux-next-9e50b94b3eb0d859a2586b5a40d7fd6e5afd9210'
     vmcore = '/root/agent4kdump/vmcore'
     crash = '/root/agent4kdump/kdump_analyze/kdump-gdbserver/kdump-gdbserver'
-    gdb_path = 'gdb'
+    gdb_path = './gdb'
     kdump = KdumpAnalysis(linux,crash,vmcore,1234,gdb_path)
     kdump.loadKdump()
     kdump.loadGDB()
