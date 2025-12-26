@@ -5,13 +5,31 @@ from typing import Annotated
 
 #extend in future if needed
 ALLOWED_COMMANDS = {
-    # "ls": ["ls", "-la"],
-    # "echo": ["echo"],
-    # "pwd": ["pwd"],
+    # Basic file operations
     "find": ["find"],
     "cat": ["cat"],
     "grep": ["grep"],
-    "nm": ["nm"],
+    "head": ["head"],
+    "tail": ["tail"],
+    "wc": ["wc"],
+    "sort": ["sort"],
+    "uniq": ["uniq"],
+    
+    # Binary analysis tools
+    "nm": ["nm"],                    # List symbols from object files
+    "addr2line": ["addr2line"],      # Convert addresses to file/line
+    "objdump": ["objdump"],          # Display object file information
+    "readelf": ["readelf"],          # Display ELF file information
+    "strings": ["strings"],          # Extract printable strings
+    "file": ["file"],                # Determine file type
+    
+    # Debugging and analysis
+    "hexdump": ["hexdump"],          # Hexadecimal dump
+    "xxd": ["xxd"],                  # Make a hexdump or reverse
+    
+    # System info
+    "uname": ["uname"],              # System information
+    "which": ["which"],              # Locate a command
 }
 
 @tool

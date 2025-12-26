@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.prompt import Confirm
 from kdump import KdumpAnalysis
 import os
+from agent_tools.codeQuery.codequery import create_cq_db
 from contextlib import contextmanager
 
 config_path = None
@@ -136,3 +137,6 @@ config_path = os.path.join(linux,".config")
 # we need config to extract kernel function and macros
 if not os.path.exists(config_path):
     raise FileNotFoundError(f".config file not found in linux path: {linux}")
+
+with catch_error("Initializing code query tool"):
+    create_cq_db(linux)

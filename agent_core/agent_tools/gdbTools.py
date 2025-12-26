@@ -3,8 +3,66 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'kdump_analyze')))
 from main import kdump_analysis
+from .commandTools import ALLOWED_COMMANDS
 
 from typing import Annotated
+
+# Dangerous GDB commands that should be blocked
+DANGEROUS_GDB_COMMANDS = [
+    '!',           # Shell escape - can execute arbitrary system commands
+    'shell',       # Execute shell commands
+    'run',         # Run the program (not applicable for vmcore but still dangerous)
+    'start',       # Start program execution
+    'continue',    # Continue execution
+    'attach',      # Attach to another process
+    'detach',      # Detach from process
+    'quit',        # Exit GDB
+    'q',           # Quit shorthand
+]
+
+def filter_gdb_command(command: str) -> bool:
+    """
+    Filter the command to ensure it is safe to execute in GDB.
+    
+    Blocks dangerous commands that could:
+    - Execute arbitrary shell commands (!, shell)
+    - Modify system state or files
+    - Exit the GDB session
+    - Execute only allowed shell commands from ALLOWED_COMMANDS
+    
+    Args:
+        command (str): The GDB command to filter.
+        
+    Returns:
+        bool: True if the command is allowed, False otherwise.
+    """
+    command = command.strip()
+
+    if not command:
+        return False
+    
+    # Extract the first word (the actual command)
+    first_word = command.split()[0].lower()
+    
+    # Block dangerous GDB commands with special handling for shell escapes
+    if first_word in DANGEROUS_GDB_COMMANDS:
+
+        if first_word in ('!', 'shell'):
+            # Extract the shell command
+            if first_word == '!':
+                shell_cmd = command[1:].strip()
+            else: 
+                shell_cmd = ' '.join(command.split()[1:]).strip()
+
+            if shell_cmd:
+                shell_first_word = shell_cmd.split()[0]
+                return shell_first_word in ALLOWED_COMMANDS
+        
+        # Block all other dangerous commands
+        return False
+
+    return True
+    
 
 @tool
 def execute_gdb_command(
@@ -32,6 +90,13 @@ def execute_gdb_command(
         Example error: {'result': 'error', 'output': ['Invalid address']}
     """
     try:
+        # Filter dangerous commands before execution
+        if not filter_gdb_command(gdb_command):
+            return {
+                'result': 'error',
+                'output': [f"Command blocked for safety: '{gdb_command}'. Dangerous commands (shell escape, quit, etc.) are not allowed."]
+            }
+        
         output = kdump_analysis.execute(gdb_command)
         return output
     except Exception as e:

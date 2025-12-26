@@ -11,9 +11,6 @@ import hashlib
 def calc_md5(text: str):
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
-# ============================
-#    MAIN CLASS
-# ============================
 class EmbeddingModel:
     def __init__(self, data_dir="./case", persist_dir="chroma_db", model="text-embedding-3-large", api_key=None):
 
@@ -23,7 +20,6 @@ class EmbeddingModel:
         self.client = None
 
         try:
-            # OpenAI
             self.client = OpenAI(api_key=api_key)
             # Test the API key by making a simple request
             self.client.models.list()
@@ -47,10 +43,6 @@ class EmbeddingModel:
         
         self.logger.info("EmbeddingModel initialized.")
 
-
-    # ============================
-    #   STEP 3: Embedding
-    # ============================
     def embed(self, text):
         resp = self.client.embeddings.create(
             model=self.model_name,
@@ -110,14 +102,9 @@ class EmbeddingModel:
         self.bm25_docs = bm25_corpus
         self.bm25_index = BM25Okapi(self.bm25_docs)
 
-    # ============================
-    #   STEP 5: Multi-Recall Search
-    # ============================
     def search(self, query, top_k=5):
 
-        # ====================
-        # 1. BM25 recall
-        # ====================
+        # Recall from BM25, sentence
         tokens = query.split()
         bm25_scores = self.bm25_index.get_scores(tokens)
         bm25_top_ids = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:top_k]
@@ -129,10 +116,8 @@ class EmbeddingModel:
                 "text": doc["documents"][0],
                 "bm25_score": float(bm25_scores[idx]),
             })
-
-        # ====================
-        # 2. Vector recall
-        # ====================
+            
+        # Recall from Vector DB, vector
         query_vec = self.embed(query)
         vec_results = self.collection.query(
             query_embeddings=[query_vec],
@@ -146,9 +131,6 @@ class EmbeddingModel:
                 "vec_distance": float(vec_results["distances"][0][i])
             })
 
-        # ====================
-        # 3. Merge results
-        # ====================
         merged = {}
 
         for item in bm25_hits:
@@ -189,12 +171,6 @@ class EmbeddingModel:
 
         return final_hits[:top_k]
 
-
-
-
-# ============================
-#       Run standalone
-# ============================
 if __name__ == "__main__":
     
     crash = '''crash report'''
