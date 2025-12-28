@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import time
 
 cache_dir = "cache"
+proj_path = None
 
 @contextmanager
 def log_time(desc):
@@ -65,6 +66,8 @@ def create_cq_db(project_path):
         with log_time("codequery database creation"):
             subprocess.run(['cqmakedb', '-s', './cq.db', '-c' './cscope.out', '-t', './tags', '-p'],
                            cwd=project_path, check=True)
+        
+        globals()['proj_path'] = project_path
 
     except subprocess.CalledProcessError:
         raise Exception("Error creating codequery database")

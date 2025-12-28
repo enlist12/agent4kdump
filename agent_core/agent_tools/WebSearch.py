@@ -9,8 +9,8 @@ import json
 
 @tool
 def web_search(
-    query: str,
-    max_results: int = 5
+    query: Annotated[str, "The search query (e.g., 'Linux kernel use-after-free CVE-2023-1234')"],
+    max_results: Annotated[int, "Maximum number of results to return"] = 5
 ) -> Annotated[str, "Search results from the web"]:
     """
     Search the web for information related to kernel bugs, CVEs, patches, and technical documentation.
@@ -83,8 +83,8 @@ def web_search(
 
 @tool
 def fetch_webpage_content(
-    url: str,
-    max_length: int = 5000
+    url: Annotated[str, "The URL of the webpage to fetch"],
+    max_length: Annotated[int, "Maximum character length of content to return"] = 5000
 ) -> Annotated[str, "Content extracted from the webpage"]:
     """
     Fetch and extract the main text content from a webpage.

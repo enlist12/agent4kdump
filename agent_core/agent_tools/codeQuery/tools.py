@@ -1,13 +1,28 @@
-import re
+from .codequery import proj_path
 from langchain_core.tools import tool
 from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery
 from .get_func_def import read_func, read_struct_def, read_global_var, read_func_first_line, read_marco
+from typing import Annotated
 
 @tool
-def get_func_callback(task, args):
-    proj_path = task['proj_dir']
+def get_func_callback(
+    func_names: Annotated[list[str], "List of function names to query"]
+) -> Annotated[str, "Function definitions"]:
+    """
+    Retrieve the source code definitions for a list of functions.
+    
+    This tool searches the codebase for the definitions of the specified functions
+    and returns their source code. It handles multiple definitions by prioritizing
+    C source files over headers and using heuristics to find the actual implementation.
+    
+    Args:
+        func_names (list[str]): A list of function names to look up (e.g., ["kmalloc", "vfs_read"])
+        
+    Returns:
+        str: The source code definitions of the found functions, or "not found" messages.
+    """
     response = ""
-    for func_name in args:
+    for func_name in func_names:
         func_loc = get_func_def_codequery(proj_path, func_name)
         
         # heuristics: the definition of a function must NOT start with "\t"
@@ -43,21 +58,29 @@ def get_func_callback(task, args):
 
     return response
 
-
-_current_caller_pos = {}
-
 @tool
 def get_caller_callback(task, args):
     pass
 
-def clear_counter():
-    _current_caller_pos.clear()
-
 @tool
-def get_struct_callback(task, args):
-    proj_path = task['proj_dir']
+def get_struct_callback(
+    struct_names: Annotated[list[str], "List of struct names to query"]
+) -> Annotated[str, "Struct definitions"]:
+    """
+    Retrieve the source code definitions for a list of structures.
+    
+    This tool searches the codebase for the definitions of the specified C structures
+    and returns their source code.
+    
+    Args:
+        struct_names (list[str]): A list of struct names to look up (e.g., ["task_struct", "file"])
+                                  Can optionally include "struct " prefix.
+        
+    Returns:
+        str: The source code definitions of the found structures.
+    """
     response = ""
-    for struct_name in args:
+    for struct_name in struct_names:
         if struct_name.startswith("struct "):
             struct_name = struct_name[7:]
         struct_def = get_struct_def_codequery(proj_path, struct_name)
@@ -78,10 +101,23 @@ def _is_macro_def(arg):
     return arg.isupper()
 
 @tool
-def get_global_var(task, args):
-    proj_path = task['proj_dir']
+def get_global_var(
+    var_names: Annotated[list[str], "List of global variable or macro names to query"]
+) -> Annotated[str, "Global variable/macro definitions"]:
+    """
+    Retrieve the definitions of global variables or macros.
+    
+    This tool searches for global variables or preprocessor macros in the codebase.
+    It automatically detects macros based on uppercase naming convention.
+    
+    Args:
+        var_names (list[str]): A list of variable or macro names to look up.
+        
+    Returns:
+        str: The source code definitions of the found variables or macros.
+    """
     response = ""
-    for var_name in args:
+    for var_name in var_names:
         if not var_name:
             response += "Error: empty variable name.\n"
             continue

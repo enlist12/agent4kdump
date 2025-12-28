@@ -66,7 +66,7 @@ def filter_gdb_command(command: str) -> bool:
 
 @tool
 def execute_gdb_command(
-    gdb_command: str
+    gdb_command: Annotated[str, "The GDB command to execute (e.g., 'info registers', 'bt')"]
 )-> Annotated[dict, "Output of the gdb command"]:
     """
     Execute a GDB command to analyze kernel dump (vmcore) via kdump-gdbserver.

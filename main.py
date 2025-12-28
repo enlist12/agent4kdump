@@ -14,6 +14,7 @@ from contextlib import contextmanager
 
 config_path = None
 kdump_analysis = None
+linux_path = None
 
 main_log = get_logger("Main")
 
@@ -50,7 +51,7 @@ syzbot_data = config.get('syzbot_data', './syzbot_data')
 enable_rag = config.get('enable_rag', False)
 api_key = config.get("api_key", None)
 
-linux = os.path.abspath(linux)
+linux_path = os.path.abspath(linux)
 vmcore = os.path.abspath(vmcore)
 kdump_server = os.path.abspath(kdump_server)
 syzbot_data = os.path.abspath(syzbot_data)
@@ -64,7 +65,7 @@ table = Table(title="Configuration Summary", show_header=True, header_style="bol
 table.add_column("Setting", style="cyan", width=20)
 table.add_column("Value", style="green")
 
-table.add_row("Linux Path", linux)
+table.add_row("Linux Path", linux_path)
 table.add_row("GDB Path", gdb)
 table.add_row("VMCore", vmcore)
 table.add_row("Kdump Server", kdump_server)
@@ -120,7 +121,7 @@ main_log.info("Initializing kdump-gdbserver...")
 # initialize kdump analysis
 with catch_error("kdump analysis initialization"):
     kdump_analysis = KdumpAnalysis(
-        linux=linux,
+        linux=linux_path,
         kdump_server=kdump_server,
         vmcore=vmcore,
         gdb_path=gdb,
@@ -132,11 +133,11 @@ with catch_error("Loading kdump-gdbserver"):
 with catch_error("Loading GDB"):
     kdump_analysis.loadGDB()
     
-config_path = os.path.join(linux,".config")
+config_path = os.path.join(linux_path,".config")
 
 # we need config to extract kernel function and macros
 if not os.path.exists(config_path):
-    raise FileNotFoundError(f".config file not found in linux path: {linux}")
+    raise FileNotFoundError(f".config file not found in linux path: {linux_path}")
 
 with catch_error("Initializing code query tool"):
-    create_cq_db(linux)
+    create_cq_db(linux_path)

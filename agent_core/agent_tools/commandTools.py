@@ -34,8 +34,8 @@ ALLOWED_COMMANDS = {
 
 @tool
 def safe_shell_command(
-    command_alias: str,
-    cmd_args: Optional[List[str]] = None
+    command_alias: Annotated[str, "The alias of the command to execute (must be in ALLOWED_COMMANDS)"],
+    cmd_args: Annotated[Optional[List[str]], "Additional arguments for the command"] = None
 ) -> Annotated[str, "Output of the shell command"]:
     """
     Execute allowed shell commands safely

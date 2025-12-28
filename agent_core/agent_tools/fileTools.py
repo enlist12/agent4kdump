@@ -10,7 +10,7 @@ configMap = {}
 
 @tool
 def read_config(
-    config:str
+    config: Annotated[str, "The config name, e.g., CONFIG_KASAN"]
 ) -> Annotated[bool, "whether the config is enabled"]:
     """
     this tool is used to make sure whether the config is enabled
@@ -41,9 +41,9 @@ def read_config(
 
 @tool
 def read_file_by_line_number(
-    file_path: str,
-    line_number: int,
-    line_range: int = 10
+    file_path: Annotated[str, "The path of the file (absolute path required)"],
+    line_number: Annotated[int, "The line number to read (starting from 1)"],
+    line_range: Annotated[int, "The context range of the line number, default is 10 lines"] = 10
 ) -> Annotated[str, "Context content of the specified line"]:
     """
     This tool is used to read the context content of a specified line number in a file.
@@ -87,7 +87,7 @@ def read_file_by_line_number(
     
 @tool
 def read_file(
-    file_path:str
+    file_path: Annotated[str, "The path of the file (absolute path required)"]
 ) -> Annotated[str, "Complete content of the file"]:
     """
     This tool is used to read the content of a file at the specified path.
