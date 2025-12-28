@@ -1,6 +1,6 @@
 from .codequery import proj_path
 from langchain_core.tools import tool
-from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery
+from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery, get_caller_codequery, get_callee_codequery
 from .get_func_def import read_func, read_struct_def, read_global_var, read_func_first_line, read_marco
 from typing import Annotated
 
@@ -59,8 +59,80 @@ def get_func_callback(
     return response
 
 @tool
-def get_caller_callback(task, args):
-    pass
+def get_caller_callback(
+    func_names: Annotated[list[str], "List of function names to query for callers"]
+) -> Annotated[str, "Call sites of the functions"]:
+    """
+    Retrieve the call sites (callers) for a list of functions.
+    
+    Args:
+        func_names (list[str]): A list of function names to look up.
+        
+    Returns:
+        str: A list of file paths and line numbers where the functions are called.
+    """
+    response = ""
+    for func_name in func_names:
+        callers = get_caller_codequery(proj_path, func_name)
+        if not callers or len(callers) == 0:
+            response += f"No callers found for {func_name}.\n"
+            continue
+            
+        response += f"Callers of {func_name}:\n"
+        # Limit to top 20 to avoid context overflow
+        for loc in callers[:20]:
+            file_path, line_no = loc
+            # Try to read the code line
+            try:
+                code_line = read_func_first_line(file_path, int(line_no), proj_path)
+                if code_line:
+                    code_line = code_line.strip()
+            except:
+                code_line = ""
+            
+            response += f"  {file_path}:{line_no}  {code_line}\n"
+        
+        if len(callers) > 20:
+            response += f"  ... and {len(callers) - 20} more.\n"
+            
+    return response
+
+@tool
+def get_callee_callback(
+    func_names: Annotated[list[str], "List of function names to query for callees"]
+) -> Annotated[str, "Functions called by the specified functions"]:
+    """
+    Retrieve the functions called by the specified functions (callees).
+    
+    Args:
+        func_names (list[str]): A list of function names to look up.
+        
+    Returns:
+        str: A list of file paths and line numbers where the called functions are defined.
+    """
+    response = ""
+    for func_name in func_names:
+        callees = get_callee_codequery(proj_path, func_name)
+        if not callees or len(callees) == 0:
+            response += f"No callees found for {func_name}.\n"
+            continue
+            
+        response += f"Functions called by {func_name}:\n"
+        # Limit to top 20
+        for loc in callees[:20]:
+            file_path, line_no = loc
+            try:
+                code_line = read_func_first_line(file_path, int(line_no), proj_path)
+                if code_line:
+                    code_line = code_line.strip()
+            except:
+                code_line = ""
+            response += f"  {file_path}:{line_no}  {code_line}\n"
+            
+        if len(callees) > 20:
+            response += f"  ... and {len(callees) - 20} more.\n"
+            
+    return response
 
 @tool
 def get_struct_callback(

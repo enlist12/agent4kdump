@@ -357,3 +357,131 @@ def get_global_var_def_codequery(proj, req_var, is_marco=False):
                         return None
             cache[cache_key] = res
         return cache[cache_key]
+
+
+def __get_caller_cq(project_path, function_name):
+    # Construct the cqsearch command
+    cqsearch_db = __get_db_file(project_path)
+
+    if not __exist_db_file(project_path):
+        if not __HAS_DEPENDENCY:
+            logging.error(
+                "Error: Missing cscope, ctags, or codequery. Please install them first.")
+            return None
+
+        logging.info("Creating codequery database")
+        create_cq_db(project_path)
+
+    command = [
+        'cqsearch',
+        '-s', cqsearch_db,
+        '-p', '6',  # 6: Functions calling this function
+        '-u',
+        '-e',
+        '-t', function_name
+    ]
+    res = []
+
+    # Run the cqsearch command and capture its output
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing cqsearch: {e}")
+        return res
+
+    # Extract the relevant file path from the output
+    output_lines = result.stdout.splitlines()
+
+    for line in output_lines:
+        line = line.split('\t')[1]
+        if '$HOME' in line:
+            # Extract the path after the project base dir
+            base_dir_pattern = os.path.basename(project_path)
+            start_index = line.find(base_dir_pattern)
+            if start_index != -1:
+                res.append(
+                    line[start_index + len(base_dir_pattern) + 1:].split(':'))
+        else:
+            base_dir_pattern = os.path.basename(project_path)
+            relative_path_start_index = line.find(
+                base_dir_pattern) + len(base_dir_pattern)+1
+            relative_path = line[relative_path_start_index:].split(':')
+            res.append(relative_path)
+
+    return res
+
+
+def __get_callee_cq(project_path, function_name):
+    # Construct the cqsearch command
+    cqsearch_db = __get_db_file(project_path)
+
+    if not __exist_db_file(project_path):
+        if not __HAS_DEPENDENCY:
+            logging.error(
+                "Error: Missing cscope, ctags, or codequery. Please install them first.")
+            return None
+
+        logging.info("Creating codequery database")
+        create_cq_db(project_path)
+
+    command = [
+        'cqsearch',
+        '-s', cqsearch_db,
+        '-p', '7',  # 7: Functions called by this function
+        '-u',
+        '-e',
+        '-t', function_name
+    ]
+    res = []
+
+    # Run the cqsearch command and capture its output
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing cqsearch: {e}")
+        return res
+
+    # Extract the relevant file path from the output
+    output_lines = result.stdout.splitlines()
+
+    for line in output_lines:
+        line = line.split('\t')[1]
+        if '$HOME' in line:
+            # Extract the path after the project base dir
+            base_dir_pattern = os.path.basename(project_path)
+            start_index = line.find(base_dir_pattern)
+            if start_index != -1:
+                res.append(
+                    line[start_index + len(base_dir_pattern) + 1:].split(':'))
+        else:
+            base_dir_pattern = os.path.basename(project_path)
+            relative_path_start_index = line.find(
+                base_dir_pattern) + len(base_dir_pattern)+1
+            relative_path = line[relative_path_start_index:].split(':')
+            res.append(relative_path)
+
+    return res
+
+
+def get_caller_codequery(proj, req_func):
+    with Cache(cache_dir+"/cache_cq_caller", size_limit=1 * 1024 ** 3) as cache:
+        cache_key = f"{proj}:{req_func}"
+        if cache_key not in cache:
+            res = __get_caller_cq(proj, req_func)
+            if res is None or len(res) == 0:
+                return None
+            cache[cache_key] = res
+        return cache[cache_key]
+
+
+def get_callee_codequery(proj, req_func):
+    with Cache(cache_dir+"/cache_cq_callee", size_limit=1 * 1024 ** 3) as cache:
+        cache_key = f"{proj}:{req_func}"
+        if cache_key not in cache:
+            res = __get_callee_cq(proj, req_func)
+            if res is None or len(res) == 0:
+                return None
+            cache[cache_key] = res
+        return cache[cache_key]
