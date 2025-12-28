@@ -50,6 +50,8 @@ def get_func_callback(
 
 
         # and let's use the last one
+        # no, last one maybe not the best
+        # TODO: better selection strategy
         file_path, line_no = func_loc[-1]
 
         # read the source code

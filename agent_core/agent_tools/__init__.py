@@ -16,3 +16,8 @@ CUSTOM_AGENT_TOOLS = {
 
 if __name__ == "__main__":
     print("This is the agent_tools package. It provides various tools for the agent core.")
+    """
+    test tools here
+    """
+    #TODO: add test code
+    pass
