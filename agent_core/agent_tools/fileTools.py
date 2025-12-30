@@ -1,10 +1,22 @@
 from langchain_core.tools import tool
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))) 
 import json
 from typing import Annotated
-from main import config_path
+
+# Global variable to hold the config path
+_CONFIG_PATH = None
+
+def set_config_path(path):
+    """Set the global config path."""
+    global _CONFIG_PATH
+    _CONFIG_PATH = path
+
+def get_config_path():
+    """Get the global config path."""
+    if _CONFIG_PATH is None:
+        raise RuntimeError("config_path not set. Call set_config_path() first.")
+    return _CONFIG_PATH
 
 configMap = {}
 
@@ -22,7 +34,7 @@ def read_config(
         whether the config is enabled
     """
     if not configMap:
-        with open(config_path, 'r') as file:
+        with open(get_config_path(), 'r') as file:
             for line in file:
                 line = line.strip()
                 if line.startswith("# CONFIG_"):

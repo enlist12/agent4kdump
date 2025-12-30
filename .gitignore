@@ -10,3 +10,6 @@ kdump_analyze/*
 __pycache__/
 .gdb_history
 codequery
+config.yaml
+cache
+agent_core/.env

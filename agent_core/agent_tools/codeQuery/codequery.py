@@ -9,6 +9,16 @@ import time
 cache_dir = "cache"
 proj_path = None
 
+def set_proj_path(path):
+    global proj_path
+    proj_path = path
+
+def get_proj_path():
+    global proj_path
+    if proj_path is None:
+        raise ValueError("Project path is not set. Call set_proj_path first.")
+    return proj_path
+
 @contextmanager
 def log_time(desc):
     logging.info(f"Starting {desc}")
@@ -47,7 +57,12 @@ def create_cq_db(project_path):
         # find all source files (*.c, *.cpp, *.h, *.hpp) in the project directory
         # and write to "cscope.files"
         # with log_time("find source files"):
-        with open(os.path.join(project_path, 'cscope.files'), 'w') as f:
+        cscope_files_path = os.path.join(project_path, 'cscope.files')
+        
+        if os.path.exists(cscope_files_path):
+            return
+        
+        with open(cscope_files_path, 'w') as f:
             subprocess.run(
                 ['find', '.', '-type', 'f', '(', '-name', '*.c', '-o', '-name',
                  '*.cpp', '-o', '-name', '*.h', '-o', '-name', '*.hpp', ')'],
@@ -66,8 +81,6 @@ def create_cq_db(project_path):
         with log_time("codequery database creation"):
             subprocess.run(['cqmakedb', '-s', './cq.db', '-c' './cscope.out', '-t', './tags', '-p'],
                            cwd=project_path, check=True)
-        
-        globals()['proj_path'] = project_path
 
     except subprocess.CalledProcessError:
         raise Exception("Error creating codequery database")

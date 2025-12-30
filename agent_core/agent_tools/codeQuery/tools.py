@@ -1,4 +1,4 @@
-from .codequery import proj_path
+from .codequery import get_proj_path
 from langchain_core.tools import tool
 from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery, get_caller_codequery, get_callee_codequery
 from .get_func_def import read_func, read_struct_def, read_global_var, read_func_first_line, read_marco
@@ -23,14 +23,14 @@ def get_func_callback(
     """
     response = ""
     for func_name in func_names:
-        func_loc = get_func_def_codequery(proj_path, func_name)
+        func_loc = get_func_def_codequery(get_proj_path(), func_name)
         
         # heuristics: the definition of a function must NOT start with "\t"
         if func_loc and len(func_loc) > 0:
             func_loc_tmp = []
             for loc in func_loc:
                 file_path, line_no = loc
-                func_first_line = read_func_first_line(file_path, int(line_no), proj_path)
+                func_first_line = read_func_first_line(file_path, int(line_no), get_proj_path())
                 if func_first_line and (not func_first_line.startswith("\t")):
                     func_loc_tmp.append(loc)
             func_loc = func_loc_tmp
@@ -55,7 +55,7 @@ def get_func_callback(
         file_path, line_no = func_loc[-1]
 
         # read the source code
-        func_def = read_func(file_path, 0, proj_path, real_lineno=int(line_no))
+        func_def = read_func(file_path, 0, get_proj_path(), real_lineno=int(line_no))
         response += f"Function {func_name} is defined as: \n```c\n{func_def}\n```\n"
 
     return response
@@ -75,7 +75,7 @@ def get_caller_callback(
     """
     response = ""
     for func_name in func_names:
-        callers = get_caller_codequery(proj_path, func_name)
+        callers = get_caller_codequery(get_proj_path(), func_name)
         if not callers or len(callers) == 0:
             response += f"No callers found for {func_name}.\n"
             continue
@@ -86,7 +86,7 @@ def get_caller_callback(
             file_path, line_no = loc
             # Try to read the code line
             try:
-                code_line = read_func_first_line(file_path, int(line_no), proj_path)
+                code_line = read_func_first_line(file_path, int(line_no), get_proj_path())
                 if code_line:
                     code_line = code_line.strip()
             except:
@@ -114,7 +114,7 @@ def get_callee_callback(
     """
     response = ""
     for func_name in func_names:
-        callees = get_callee_codequery(proj_path, func_name)
+        callees = get_callee_codequery(get_proj_path(), func_name)
         if not callees or len(callees) == 0:
             response += f"No callees found for {func_name}.\n"
             continue
@@ -124,7 +124,7 @@ def get_callee_callback(
         for loc in callees[:20]:
             file_path, line_no = loc
             try:
-                code_line = read_func_first_line(file_path, int(line_no), proj_path)
+                code_line = read_func_first_line(file_path, int(line_no), get_proj_path())
                 if code_line:
                     code_line = code_line.strip()
             except:
@@ -157,7 +157,7 @@ def get_struct_callback(
     for struct_name in struct_names:
         if struct_name.startswith("struct "):
             struct_name = struct_name[7:]
-        struct_def = get_struct_def_codequery(proj_path, struct_name)
+        struct_def = get_struct_def_codequery(get_proj_path(), struct_name)
         if not struct_def or len(struct_def) == 0:
             response += f"Struct {struct_name} is not found.\n"
             continue
@@ -167,7 +167,7 @@ def get_struct_callback(
 
         # read the source code
         # struct_def = read_func(file_path, 0, proj_path, real_lineno=int(line_no))
-        struct_def = read_struct_def(file_path, int(line_no), proj_path)
+        struct_def = read_struct_def(file_path, int(line_no), get_proj_path())
         response += f"Struct {struct_name} is defined as: \n```c\n{struct_def}\n```\n"
     return response
 
@@ -197,16 +197,16 @@ def get_global_var(
             continue
         
         if _is_macro_def(var_name):
-            var_def_loc = get_global_var_def_codequery(proj_path, var_name, is_marco=True)
+            var_def_loc = get_global_var_def_codequery(get_proj_path(), var_name, is_marco=True)
             if var_def_loc:
                 # and let's use the last one
                 file_path, line_no = var_def_loc[-1]
 
                 # read the source code
-                var_def = read_marco(file_path, int(line_no), proj_path)
+                var_def = read_marco(file_path, int(line_no), get_proj_path())
                 response += f"{var_name} is defined as: \n```c\n{var_def}\n```\n"
                 continue
-        var_def_loc = get_global_var_def_codequery(proj_path, var_name) 
+        var_def_loc = get_global_var_def_codequery(get_proj_path(), var_name) 
         if not var_def_loc:
             response += f"{var_name} is not found.\n"
             continue
@@ -217,8 +217,8 @@ def get_global_var(
 
         # read the source code
         if _is_macro_def(var_name):
-            var_def = read_marco(file_path, int(line_no), proj_path)
+            var_def = read_marco(file_path, int(line_no), get_proj_path())
         else:
-            var_def = read_global_var(file_path, int(line_no), proj_path)
+            var_def = read_global_var(file_path, int(line_no), get_proj_path())
         response += f"Global variable {var_name} is defined as: \n```c\n{var_def}\n```\n"
     return response

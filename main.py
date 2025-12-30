@@ -3,14 +3,17 @@ import yaml
 from pathlib import Path
 import sys
 from log import *
-from embedding import EmbeddingModel
+from agent_core.embedding import EmbeddingModel
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm
-from kdump import KdumpAnalysis
+from kdump_analyze.kdump import KdumpAnalysis
 import os
-from agent_tools.codeQuery.codequery import create_cq_db
+from agent_core.agent_tools.codeQuery.codequery import create_cq_db, set_proj_path
+from agent_core.agent_tools.gdbTools import set_kdump_analysis_instance
+from agent_core.agent_tools.fileTools import set_config_path
 from contextlib import contextmanager
+from searchAgent.search import runSearchAgent
 
 config_path = None
 kdump_analysis = None
@@ -126,6 +129,7 @@ with catch_error("kdump analysis initialization"):
         vmcore=vmcore,
         gdb_path=gdb,
     )
+    set_kdump_analysis_instance(kdump_analysis)
     
 with catch_error("Loading kdump-gdbserver"):
     kdump_analysis.loadKdump()
@@ -134,10 +138,16 @@ with catch_error("Loading GDB"):
     kdump_analysis.loadGDB()
     
 config_path = os.path.join(linux_path,".config")
+set_config_path(config_path)
 
 # we need config to extract kernel function and macros
 if not os.path.exists(config_path):
     raise FileNotFoundError(f".config file not found in linux path: {linux_path}")
 
 with catch_error("Initializing code query tool"):
+    set_proj_path(linux_path)
     create_cq_db(linux_path)
+    
+result = runSearchAgent()
+
+print(result)

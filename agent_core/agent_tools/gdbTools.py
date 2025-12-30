@@ -1,11 +1,21 @@
 from langchain_core.tools import tool
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'kdump_analyze')))
-from main import kdump_analysis
 from .commandTools import ALLOWED_COMMANDS
 
 from typing import Annotated
+
+# Global variable to hold the kdump_analysis instance
+_KDUMP_ANALYSIS_INSTANCE = None
+
+def set_kdump_analysis_instance(instance):
+    """Set the global kdump_analysis instance."""
+    global _KDUMP_ANALYSIS_INSTANCE
+    _KDUMP_ANALYSIS_INSTANCE = instance
+
+def get_kdump_analysis_instance():
+    """Get the global kdump_analysis instance."""
+    if _KDUMP_ANALYSIS_INSTANCE is None:
+        raise RuntimeError("kdump_analysis instance not set. Call set_kdump_analysis_instance() first.")
+    return _KDUMP_ANALYSIS_INSTANCE
 
 # Dangerous GDB commands that should be blocked
 DANGEROUS_GDB_COMMANDS = [
@@ -97,7 +107,7 @@ def execute_gdb_command(
                 'output': [f"Command blocked for safety: '{gdb_command}'. Dangerous commands (shell escape, quit, etc.) are not allowed."]
             }
         
-        output = kdump_analysis.execute(gdb_command)
+        output = get_kdump_analysis_instance().execute(gdb_command)
         return output
     except Exception as e:
         return {'result': 'error', 'output': [f"Error executing gdb command: {str(e)}"]}
@@ -113,7 +123,7 @@ def getCrashReport() -> Annotated[str, "Crash report from kdump-gdbserver"]:
         str: The crash report as a string, or an error message if retrieval fails.
     """
     try:
-        status, report = kdump_analysis.getCrashReport()
+        status, report = get_kdump_analysis_instance().getCrashReport()
         if not status:
             err = "Sorry, failed to retrieve crash report. Because: " + report
             return err
