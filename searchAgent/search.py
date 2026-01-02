@@ -43,14 +43,22 @@ def submit_known_bug_analysis(
         "matched_url": matched_url,
         "extra_info": extra_info
     }
+    
+def parse_search_results(results:KnownBugAnalysisResult):
+    """Parse the search results and return a structured response."""
+    return {
+        "is_known_bug": results.is_known_bug,
+        "evidence": results.evidence,
+        "matched_url": results.matched_url,
+        "extra_info": results.extra_info
+    }
+    
 
 def createSearchAgent(model_name="openai", api_key=None, provider=None):
     llm = get_model(provider_name=model_name, key=api_key)
     
-    # Add the submit tool
     tools = SEARCH_AGENT_TOOLS
-    
-    # Create the agent graph using the new create_agent API
+
     agent_graph = create_agent(
         model=llm,
         tools=tools,
@@ -62,14 +70,12 @@ def createSearchAgent(model_name="openai", api_key=None, provider=None):
 
 def runSearchAgent():
     agent = createSearchAgent(model_name="openai", api_key=None, provider=None)
-    
-    # Instruct the agent to use the submit_known_bug_analysis tool
+
     initial_input = {"messages": [HumanMessage(content="Start analysis. Determine if this crash is a known bug (CVE/Syzbot).")]}
     
     # Initialize Langfuse CallbackHandler
     langfuse_handler = CallbackHandler()
 
-    # Invoke the graph
     result = agent.invoke(initial_input, config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH})
     
     # Extract the structured response

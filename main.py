@@ -13,7 +13,7 @@ from agent_core.agent_tools.codeQuery.codequery import create_cq_db, set_proj_pa
 from agent_core.agent_tools.gdbTools import set_kdump_analysis_instance
 from agent_core.agent_tools.fileTools import set_config_path
 from contextlib import contextmanager
-from searchAgent.search import runSearchAgent
+from searchAgent.search import runSearchAgent,parse_search_results, KnownBugAnalysisResult
 
 config_path = None
 kdump_analysis = None
@@ -148,6 +148,30 @@ with catch_error("Initializing code query tool"):
     set_proj_path(linux_path)
     create_cq_db(linux_path)
     
-result = runSearchAgent()
+with catch_error("Running search agent"):    
+    result = runSearchAgent()
 
-print(result)
+if result is None:
+    main_log.error("Failed to get output from search agent")
+    exit(1)
+
+if isinstance(result, KnownBugAnalysisResult):
+    # Parse the structured result
+    parsed_result = parse_search_results(result)
+    
+    if parsed_result['is_known_bug']:
+        main_log.info(f"Known bug found: {parsed_result['matched_url']}")
+    else:
+        main_log.info("No known bug found")
+        
+    console.print(f"[blue]Evidence: {parsed_result['evidence']}[/blue]")
+    
+    if parsed_result['extra_info']:
+        console.print(f"[red]Extra Info: {parsed_result['extra_info']}[/red]")
+    
+else:
+    main_log.error("Unexpected result type from search agent")
+    exit(1)
+
+if not parsed_result['is_known_bug']:
+    main_log.info("No known bug found, proceeding with root cause analysis...")

@@ -5,7 +5,8 @@ from functools import partial
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
-# from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import BaseTool
 from langchain_core.runnables.config import RunnableConfig
 
@@ -46,19 +47,36 @@ SUPPORTED_MODELS = {
         "key_env_name": "OLLAMA_API_KEY",
         "constructor": partial(ChatOllama, temperature=0, verbose=True),
     },
-    # "gemini": {
-    #     "name": "Gemini",                                     
-    #     "default_model": "gemini-2.5-pro-preview-05-06",
-    #     "key_env_name": "GOOGLE_API_KEY",
-    #     "constructor": partial(ChatGoogleGenerativeAI, temperature=0, verbose=True),
-    # },
+    "gemini": {
+        "name": "Gemini",                                     
+        "default_model": "gemini-2.5-preview-05-06",
+        "key_env_name": "GOOGLE_API_KEY",
+        "constructor": partial(ChatGoogleGenerativeAI, temperature=0, verbose=True),
+    },
+    "claude": {
+        "name": "Claude",
+        "default_model": "claude-4-5-sonnet-202509029",
+        "key_env_name": "ANTHROPIC_API_KEY",
+        "constructor": partial(ChatAnthropic, temperature=0, verbose=True),
+    },
 }
 
 def get_model(
-        provider_name: str,
+        provider_name: Optional[str]=None,
         model_name: Optional[str]=None,
         url: Optional[str]=None,
         key: Optional[str]=None) -> Any:
+    
+    # Load from environment if not provided
+    if provider_name is None:
+        provider_name = os.environ.get("LLM_PROVIDER", "openai")
+    
+    if model_name is None:
+        model_name = os.environ.get("LLM_MODEL_NAME")
+        
+    if url is None:
+        url = os.environ.get("LLM_BASE_URL")
+
     try:
         provider = SUPPORTED_MODELS[provider_name]
     except KeyError:
@@ -68,7 +86,9 @@ def get_model(
         if key is not None:
             os.environ[provider["key_env_name"]] = key
         else:
-            api_key = getpass.getpass(prompt="Please enter your api key: ")
+            # Try to get from generic env var if specific one is missing?
+            # Or just prompt user.
+            api_key = getpass.getpass(prompt=f"Please enter your {provider['name']} API key: ")
             os.environ[provider["key_env_name"]] = api_key
 
     if model_name is None:
