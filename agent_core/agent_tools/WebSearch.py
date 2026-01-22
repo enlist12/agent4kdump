@@ -1,9 +1,7 @@
 from langchain_core.tools import tool
-from typing import Annotated, Optional
-import os
+from typing import Annotated
 import requests
 from bs4 import BeautifulSoup
-import json
 
 # Add proxy support in future
 

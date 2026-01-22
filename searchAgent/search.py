@@ -5,13 +5,17 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from agent_core.model import get_model,MAX_RECURSION_DEPTH
 from langchain.agents import create_agent
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Optional
 from pydantic import BaseModel, Field
 from agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from langfuse.langchain import CallbackHandler
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
+
+ANALYSIS_MESSAGE = """
+Start analysis. Determine if this crash is a known bug (CVE/Syzbot).
+"""
 
 class KnownBugAnalysisResult(BaseModel):
     """The final result determining if the crash is a known bug."""
@@ -62,8 +66,9 @@ def createSearchAgent(model_name="openai", api_key=None, provider=None):
     agent_graph = create_agent(
         model=llm,
         tools=tools,
-        system_prompt=TEST_PROMPT,
-        response_format=KnownBugAnalysisResult
+        system_prompt=SystemMessage(content=TEST_PROMPT),
+        response_format=KnownBugAnalysisResult,
+        debug=True,
     )
     
     return agent_graph
@@ -71,7 +76,7 @@ def createSearchAgent(model_name="openai", api_key=None, provider=None):
 def runSearchAgent():
     agent = createSearchAgent(model_name="openai", api_key=None, provider=None)
 
-    initial_input = {"messages": [HumanMessage(content="Start analysis. Determine if this crash is a known bug (CVE/Syzbot).")]}
+    initial_input = {"messages": [HumanMessage(content=ANALYSIS_MESSAGE+COT_PROMPT)]}
     
     # Initialize Langfuse CallbackHandler
     langfuse_handler = CallbackHandler()
