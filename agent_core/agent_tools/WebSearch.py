@@ -133,3 +133,40 @@ def fetch_webpage_content(
         return f"Error: Failed to fetch webpage: {str(e)}"
     except Exception as e:
         return f"Error: {str(e)}"
+    
+def test_web_search():
+    """
+    Test suite for WebSearch functions.
+    """
+    print("Starting WebSearch tests...")
+    
+    # 1. Test web_search
+    print("\n[Test] web_search")
+    query = "Linux kernel CVE-2024-0001"
+    print(f"Searching for: {query}")
+    try:
+        results = web_search.func(query, max_results=3)
+        if "Error" in results:
+            print(f"⚠️ Search failed: {results}")
+        else:
+            print("Search successful.")
+            print(f"Results snippet:\n{results[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in web_search: {e}")
+
+    # 2. Test fetch_webpage_content
+    print("\n[Test] fetch_webpage_content")
+    # Use a reliable URL, e.g., example.com or kernel.org
+    url = "https://www.kernel.org"
+    print(f"Fetching: {url}")
+    try:
+        content = fetch_webpage_content.func(url, max_length=500)
+        if "Error" in content:
+            print(f"⚠️ Fetch failed: {content}")
+        else:
+            print("Fetch successful.")
+            print(f"Content snippet:\n{content[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in fetch_webpage_content: {e}")
+        
+    print("\nWebSearch tests completed.")

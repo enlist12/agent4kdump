@@ -3,6 +3,58 @@ from langchain_core.tools import tool
 from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery, get_caller_codequery, get_callee_codequery
 from .get_func_def import read_func, read_struct_def, read_global_var, read_func_first_line, read_marco
 from typing import Annotated
+import os
+import json
+import subprocess
+
+def get_from_vmlinux(target: str, kind: str) -> dict|None:
+    """
+    Search for definition in vmlinux using GDB.
+    Returns dict with keys: found, path, line, definition(content)
+    """
+    proj_path = get_proj_path()
+    vmlinux_path = os.path.join(proj_path, "vmlinux")
+    helper_path = os.path.join(os.path.dirname(__file__), "gdb_helper.py")
+    
+    if not os.path.exists(vmlinux_path):
+        return None
+        
+    try:
+        env = os.environ.copy()
+        env["GDB_QUERY_TARGET"] = target
+        env["GDB_QUERY_KIND"] = kind
+        # Prefer ptype for structs as it is robust against missing file markers
+        if kind == "struct":
+            env["GDB_USE_PTYPE"] = "1"
+        
+        cmd = [
+            "gdb", "-batch", "-n", 
+            "-ex", f"file {vmlinux_path}",
+            "-ex", f"source {helper_path}"
+        ]
+        
+        # GDB might output other things, so we look for the JSON line
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            env=env,
+            timeout=15 
+        )
+        
+        for line in result.stdout.splitlines():
+            if line.strip().startswith("{"):
+                try:
+                    data = json.loads(line)
+                    if data.get("found"):
+                        return data
+                except:
+                    continue
+    except Exception:
+        pass
+    return None
+
+
 
 @tool
 def get_func_callback(
@@ -23,6 +75,23 @@ def get_func_callback(
     """
     response = ""
     for func_name in func_names:
+        # First try to find exact definition using vmlinux if available
+        # This resolves ambiguity in kernel sources (multiple archs/configs)
+        # Use new generic helper for consistency, but keep func logic which needs simple location
+        # Actually logic is slightly different, get_func_loc_from_vmlinux was simple info line
+        # Let's switch to generic helper for verification.
+        gdb_res = get_from_vmlinux(func_name, "function")
+        if gdb_res and gdb_res.get("found"):
+             if gdb_res.get("path") and gdb_res.get("line"):
+                  file_path = gdb_res["path"]
+                  line_no = gdb_res["line"]
+                  full_path = os.path.join(get_proj_path(), file_path)
+                  if os.path.exists(full_path):
+                        func_def = read_func(file_path, 0, get_proj_path(), real_lineno=int(line_no))
+                        if func_def:
+                             response += f"Function {func_name} is defined as: \n```c\n{func_def}\n```\n"
+                             continue
+
         func_loc = get_func_def_codequery(get_proj_path(), func_name)
         
         # heuristics: the definition of a function must NOT start with "\t"
@@ -156,7 +225,29 @@ def get_struct_callback(
     response = ""
     for struct_name in struct_names:
         if struct_name.startswith("struct "):
-            struct_name = struct_name[7:]
+             query_name = struct_name
+             struct_name = struct_name[7:] # keep clean name for display
+        else:
+             query_name = "struct " + struct_name
+
+        # First try GDB/vmlinux for the most accurate definition (using ptype)
+        gdb_res = get_from_vmlinux(query_name, "struct")
+        if gdb_res and gdb_res.get("found"):
+             if gdb_res.get("definition"):
+                  # Ptype approach succeeded
+                  response += f"Struct {struct_name} (from GDB ptype):\n```c\n{gdb_res['definition']}\n```\n"
+                  continue
+             elif gdb_res.get("path") and gdb_res.get("line"):
+                  # Location approach succeeded (if enabled in helper later)
+                  file_path = gdb_res["path"]
+                  line_no = gdb_res["line"]
+                  full_path = os.path.join(get_proj_path(), file_path)
+                  if os.path.exists(full_path):
+                        struct_def = read_struct_def(file_path, int(line_no), get_proj_path())
+                        response += f"Struct {struct_name} is defined as: \n```c\n{struct_def}\n```\n"
+                        continue
+
+        # Fallback to text search
         struct_def = get_struct_def_codequery(get_proj_path(), struct_name)
         if not struct_def or len(struct_def) == 0:
             response += f"Struct {struct_name} is not found.\n"
@@ -222,3 +313,67 @@ def get_global_var(
             var_def = read_global_var(file_path, int(line_no), get_proj_path())
         response += f"Global variable {var_name} is defined as: \n```c\n{var_def}\n```\n"
     return response
+
+def test_code_query_tools():
+    """
+    Test suite for CodeQuery tools.
+    Targets kernel source in /root/agent4kdump/kernel/linux
+    """
+    print("Starting CodeQuery tests...")
+    # Import locally to avoid circular dependency issues at top level if any
+    try:
+        from .codequery import set_proj_path
+    except ImportError:
+         print("⚠️ Could not import set_proj_path from .codequery")
+         return
+    
+    KERNEL_DIR = "/root/agent4kdump/kernel/linux"
+    
+    # 1. Setup project path
+    print(f"\n[Setup] Setting project path to {KERNEL_DIR}")
+    try:
+        set_proj_path(KERNEL_DIR)
+    except Exception as e:
+        print(f"❌ Failed to set project path: {e}")
+        return
+
+    # 2. Test get_func_callback
+    print("\n[Test] get_func_callback: vfs_read")
+    try:
+        # vfs_read is a common kernel function call
+        result = get_func_callback.func(["vfs_read"])
+        if "not found" in result:
+             print(f"⚠️ vfs_read not found: {result}")
+        else:
+             print("vfs_read definition found.")
+             print(f"Snippet: {result[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in get_func_callback: {e}")
+
+    # 3. Test get_struct_callback
+    print("\n[Test] get_struct_callback: cred")
+    try:
+        # struct cred is a fundamental kernel structure
+        result = get_struct_callback.func(["cred"])
+        if "not found" in result:
+             print(f"⚠️ struct cred not found: {result}")
+        else:
+             print("struct cred definition found.")
+             print(f"Snippet: {result[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in get_struct_callback: {e}")
+
+    # 4. Test get_global_var
+    print("\n[Test] get_global_var: jiffies")
+    try:
+        # jiffies is a well-known global variable
+        result = get_global_var.func(["jiffies"])
+        if "not found" in result:
+             print(f"⚠️ jiffies not found: {result}")
+        else:
+             print("jiffies definition found.")
+             print(f"Snippet: {result[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in get_global_var: {e}")
+
+    print("\nCodeQuery tests completed.")

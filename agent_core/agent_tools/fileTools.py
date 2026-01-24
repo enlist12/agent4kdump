@@ -112,3 +112,70 @@ def read_file(
         return content
     except Exception as e:
         return f"❌ Failed to read file: {e}"
+
+def test_file_tools():
+    """
+    Test suite for fileTools functions.
+    Targets kernel source in /root/agent4kdump/kernel/linux
+    """
+    print("Starting fileTools tests...")
+    import os
+    
+    KERNEL_DIR = "/root/agent4kdump/kernel/linux"
+    CONFIG_PATH = os.path.join(KERNEL_DIR, ".config")
+    README_PATH = os.path.join(KERNEL_DIR, "README")
+    MAKEFILE_PATH = os.path.join(KERNEL_DIR, "Makefile")
+    
+    # 1. Test read_config
+    print("\n[Test] read_config")
+    # Setup config path
+    try:
+        set_config_path(CONFIG_PATH)
+        print(f"Config path set to: {CONFIG_PATH}")
+    except Exception as e:
+        print(f"❌ Failed to set config path: {e}")
+
+    # Test reading a likely existing config
+    # Use .func to bypass StructuredTool and test logic directly
+    result = read_config.func("CONFIG_64BIT")
+    print(f"read_config('CONFIG_64BIT'): {result}")
+    
+    # Test reading a non-existent config
+    result = read_config.func("CONFIG_NON_EXISTENT_FEATURE_XYZ")
+    print(f"read_config('CONFIG_NON_EXISTENT_FEATURE_XYZ'): {result} (Expected: False)")
+
+    # 2. Test read_file_by_line_number
+    print("\n[Test] read_file_by_line_number")
+    # Normal case: Read Makefile first few lines
+    if os.path.exists(MAKEFILE_PATH):
+        content = read_file_by_line_number.func(MAKEFILE_PATH, 1, 5)
+        print(f"read_file_by_line_number('{MAKEFILE_PATH}', 1, 5):\n{content}")
+    else:
+        print(f"⚠️ {MAKEFILE_PATH} not found, skipping normal read test")
+
+    # Error case: Out of range
+    if os.path.exists(README_PATH):
+        content = read_file_by_line_number.func(README_PATH, 100000)
+        print(f"read_file_by_line_number (Out of range): {content}")
+    
+    # Error case: File not found
+    content = read_file_by_line_number.func("/root/non_existent_file.txt", 1)
+    print(f"read_file_by_line_number (File not found): {content}")
+
+    # 3. Test read_file
+    print("\n[Test] read_file")
+    if os.path.exists(README_PATH):
+        content = read_file.func(README_PATH)
+        if hasattr(content, 'startswith') and content.startswith("❌"):
+             print(f"read_file('{README_PATH}') Failed: {content}")
+        else:
+             print(f"read_file('{README_PATH}') Success, length: {len(content)} chars")
+             print(f"Snippet: {content[:100]}...")
+    else:
+        print(f"⚠️ {README_PATH} not found, skipping read_file test")
+    
+    # Error case: File not found
+    content = read_file.func("/root/non_existent_file.txt")
+    print(f"read_file (File not found): {content}")
+
+    print("\nfileTools tests completed.")

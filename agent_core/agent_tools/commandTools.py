@@ -74,3 +74,37 @@ def safe_shell_command(
         return "Error: Command timed out."
     except Exception as e:
         return f"Error executing command: {str(e)}"
+
+def test_command_tools():
+    """
+    Test suite for commandTools functions.
+    """
+    print("Starting commandTools tests...")
+    
+    # 1. Test allowed command: uname
+    print("\n[Test] Allowed command: uname")
+    output = safe_shell_command.func("uname", ["-a"])
+    print(f"Result: {output}")
+
+    # 2. Test allowed command with args: cat specific file
+    print("\n[Test] Allowed command: cat /root/agent4kdump/kernel/linux/README")
+    readme_path = "/root/agent4kdump/kernel/linux/README"
+    output = safe_shell_command.func("cat", [readme_path])
+    
+    if "Error" in output or "failed" in output.lower():
+        print(f"Command failed: {output}")
+    else:
+        print(f"Command success. Output length: {len(output)}")
+        print(f"Snippet: {output[:100]}...")
+
+    # 3. Test disallowed command
+    print("\n[Test] Disallowed command: ls (assuming not in list)")
+    output = safe_shell_command.func("ls", ["-la"])
+    print(f"Result: {output}")
+
+    # 4. Test error handling (non-existent file for cat)
+    print("\n[Test] Error handling: cat non-existent")
+    output = safe_shell_command.func("cat", ["/path/to/nothing"])
+    print(f"Result: {output}")
+
+    print("\ncommandTools tests completed.")

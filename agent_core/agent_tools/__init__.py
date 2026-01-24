@@ -19,12 +19,3 @@ CUSTOM_AGENT_TOOLS = {
     "List all existing sub-agents with their IDs and names": list_sub_agents,
     "Remove an existing sub-agent by its ID": remove_sub_agent
 }
-
-
-if __name__ == "__main__":
-    print("This is the agent_tools package. It provides various tools for the agent core.")
-    """
-    test tools here
-    """
-    #TODO: add test code
-    pass

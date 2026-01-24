@@ -4,9 +4,10 @@ from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.memory import MemorySaver
-
-from agent_core.model import get_model, MAX_RECURSION_DEPTH
-from agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
+from model import get_model, MAX_RECURSION_DEPTH
 
 MAX_AGENTS = 5
 _SUB_AGENTS: Dict[int, Dict[str, Any]] = {}
@@ -36,6 +37,7 @@ def create_sub_agent(
     try:
         model = get_model()
 
+        from agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
         tools = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
 
         memory = MemorySaver()
