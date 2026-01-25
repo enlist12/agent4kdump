@@ -2,54 +2,53 @@ from .codequery import get_proj_path
 from langchain_core.tools import tool
 from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery, get_caller_codequery, get_callee_codequery
 from .get_func_def import read_func, read_struct_def, read_global_var, read_func_first_line, read_marco
+from ..gdbTools import execute_gdb_command
 from typing import Annotated
 import os
 import json
-import subprocess
 
 def get_from_vmlinux(target: str, kind: str) -> dict|None:
     """
-    Search for definition in vmlinux using GDB.
+    Search for definition in vmlinux using GDB (via execute_gdb_command).
     Returns dict with keys: found, path, line, definition(content)
     """
-    proj_path = get_proj_path()
-    vmlinux_path = os.path.join(proj_path, "vmlinux")
     helper_path = os.path.join(os.path.dirname(__file__), "gdb_helper.py")
     
-    if not os.path.exists(vmlinux_path):
-        return None
-        
     try:
-        env = os.environ.copy()
-        env["GDB_QUERY_TARGET"] = target
-        env["GDB_QUERY_KIND"] = kind
-        # Prefer ptype for structs as it is robust against missing file markers
-        if kind == "struct":
-            env["GDB_USE_PTYPE"] = "1"
+        # Set environment variables in GDB for the helper script
+        use_ptype = "1" if kind == "struct" else "0"
         
-        cmd = [
-            "gdb", "-batch", "-n", 
-            "-ex", f"file {vmlinux_path}",
-            "-ex", f"source {helper_path}"
-        ]
-        
-        # GDB might output other things, so we look for the JSON line
-        result = subprocess.run(
-            cmd, 
-            capture_output=True, 
-            text=True, 
-            env=env,
-            timeout=15 
+        setup_cmd = (
+            f"python import os; "
+            f"os.environ['GDB_QUERY_TARGET'] = '{target}'; "
+            f"os.environ['GDB_QUERY_KIND'] = '{kind}'; "
+            f"os.environ['GDB_USE_PTYPE'] = '{use_ptype}'"
         )
         
-        for line in result.stdout.splitlines():
-            if line.strip().startswith("{"):
-                try:
-                    data = json.loads(line)
-                    if data.get("found"):
-                        return data
-                except:
-                    continue
+        # Access the underlying function if wrapped by @tool
+        exec_func = execute_gdb_command
+        if hasattr(execute_gdb_command, 'func'):
+             exec_func = execute_gdb_command.func
+
+        # Execute setup
+        res = exec_func(setup_cmd)
+        # We don't strictly check setup result as long as source works, 
+        # but if setup fails, source might run with wrong env.
+        
+        # Execute source
+        res = exec_func(f"source {helper_path}")
+        
+        if isinstance(res, dict) and res.get('result') == 'success':
+            output_lines = res.get('output', [])
+            for line in output_lines:
+                line = line.strip()
+                if line.startswith("{"):
+                    try:
+                        data = json.loads(line)
+                        if data.get("found"):
+                            return data
+                    except:
+                        continue
     except Exception:
         pass
     return None
@@ -66,12 +65,6 @@ def get_func_callback(
     This tool searches the codebase for the definitions of the specified functions
     and returns their source code. It handles multiple definitions by prioritizing
     C source files over headers and using heuristics to find the actual implementation.
-    
-    Args:
-        func_names (list[str]): A list of function names to look up (e.g., ["kmalloc", "vfs_read"])
-        
-    Returns:
-        str: The source code definitions of the found functions, or "not found" messages.
     """
     response = ""
     for func_name in func_names:
@@ -135,12 +128,6 @@ def get_caller_callback(
 ) -> Annotated[str, "Call sites of the functions"]:
     """
     Retrieve the call sites (callers) for a list of functions.
-    
-    Args:
-        func_names (list[str]): A list of function names to look up.
-        
-    Returns:
-        str: A list of file paths and line numbers where the functions are called.
     """
     response = ""
     for func_name in func_names:
@@ -174,12 +161,6 @@ def get_callee_callback(
 ) -> Annotated[str, "Functions called by the specified functions"]:
     """
     Retrieve the functions called by the specified functions (callees).
-    
-    Args:
-        func_names (list[str]): A list of function names to look up.
-        
-    Returns:
-        str: A list of file paths and line numbers where the called functions are defined.
     """
     response = ""
     for func_name in func_names:
@@ -207,20 +188,13 @@ def get_callee_callback(
 
 @tool
 def get_struct_callback(
-    struct_names: Annotated[list[str], "List of struct names to query"]
+    struct_names: Annotated[list[str], "List of struct names to query(e.g., ['task_struct', 'file'])"]
 ) -> Annotated[str, "Struct definitions"]:
     """
     Retrieve the source code definitions for a list of structures.
     
     This tool searches the codebase for the definitions of the specified C structures
     and returns their source code.
-    
-    Args:
-        struct_names (list[str]): A list of struct names to look up (e.g., ["task_struct", "file"])
-                                  Can optionally include "struct " prefix.
-        
-    Returns:
-        str: The source code definitions of the found structures.
     """
     response = ""
     for struct_name in struct_names:
@@ -274,12 +248,6 @@ def get_global_var(
     
     This tool searches for global variables or preprocessor macros in the codebase.
     It automatically detects macros based on uppercase naming convention.
-    
-    Args:
-        var_names (list[str]): A list of variable or macro names to look up.
-        
-    Returns:
-        str: The source code definitions of the found variables or macros.
     """
     response = ""
     for var_name in var_names:
@@ -288,7 +256,7 @@ def get_global_var(
             continue
         
         if _is_macro_def(var_name):
-            var_def_loc = get_global_var_def_codequery(get_proj_path(), var_name, is_marco=True)
+            var_def_loc = get_global_var_def_codequery(get_proj_path(), var_name, is_macro=True)
             if var_def_loc:
                 # and let's use the last one
                 file_path, line_no = var_def_loc[-1]
@@ -367,7 +335,7 @@ def test_code_query_tools():
     print("\n[Test] get_global_var: jiffies")
     try:
         # jiffies is a well-known global variable
-        result = get_global_var.func(["jiffies"])
+        result = get_global_var.func(["init_cred"])
         if "not found" in result:
              print(f"⚠️ jiffies not found: {result}")
         else:
@@ -375,5 +343,29 @@ def test_code_query_tools():
              print(f"Snippet: {result[:200]}...")
     except Exception as e:
         print(f"❌ Exception in get_global_var: {e}")
+
+    # 5. Test get_caller_callback
+    print("\n[Test] get_caller_callback: vfs_read")
+    try:
+        result = get_caller_callback.func(["vfs_read"])
+        if "No callers found" in result:
+             print(f"⚠️ callers for vfs_read not found: {result}")
+        else:
+             print("Callers of vfs_read found.")
+             print(f"Snippet: {result[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in get_caller_callback: {e}")
+
+    # 6. Test get_callee_callback
+    print("\n[Test] get_callee_callback: vfs_read")
+    try:
+        result = get_callee_callback.func(["vfs_read"])
+        if "No callees found" in result:
+             print(f"⚠️ callees for vfs_read not found: {result}")
+        else:
+             print("Callees of vfs_read found.")
+             print(f"Snippet: {result[:200]}...")
+    except Exception as e:
+        print(f"❌ Exception in get_callee_callback: {e}")
 
     print("\nCodeQuery tests completed.")

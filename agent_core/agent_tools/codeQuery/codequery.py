@@ -350,12 +350,12 @@ def get_struct_def_codequery(proj, req_struct):
         return cache[cache_key]
     
 
-def get_global_var_def_codequery(proj, req_var, is_marco=False):
+def get_global_var_def_codequery(proj, req_var, is_macro=False):
     with Cache(cache_dir+"/cache_cq_var", size_limit=1 * 1024 ** 3) as cache:
         # Create a cache key using the function name and version, with size limit = 1GB
         cache_key = f"{proj}:{req_var}"
         if cache_key not in cache:
-            if is_marco:
+            if is_macro:
                 res = __get_global_var_cq(proj, req_var, 'define '+req_var)
                 if res is None or len(res) == 0:
                     # considering "enum" as well

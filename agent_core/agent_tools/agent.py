@@ -21,13 +21,6 @@ def create_sub_agent(
     """
     Create a new sub-agent with a specific system prompt and name.
     The agent will be initialized with standard tools and a persistent memory context using a checkpointer.
-    
-    Args:
-        system_prompt (str): Instructions defining the agent's role and behavior.
-        name (str): A friendly name for the agent (default: "Assistant").
-        
-    Returns:
-        str: Success message including the new Agent ID, or error message.
     """
     global _NEXT_AGENT_ID
     
@@ -71,10 +64,6 @@ def chat_with_sub_agent(
     """
     Send a message to a specific sub-agent and get the response.
     The agent uses a checkpointer to maintain conversation history automatically.
-    
-    Args:
-        agent_id (int): The ID of the agent to use.
-        message (str): The input message.
     """
     if agent_id not in _SUB_AGENTS:
         return f"Error: Agent with ID {agent_id} not found. Use list_sub_agents to see available agents."
@@ -119,9 +108,6 @@ def remove_sub_agent(
 ) -> Annotated[str, "Result of the removal operation"]:
     """
     Remove a sub-agent by its ID to free up slots.
-    
-    Args:
-        agent_id (int): The ID of the agent to remove.
     """
     if agent_id not in _SUB_AGENTS:
         return f"Error: Agent with ID {agent_id} not found."

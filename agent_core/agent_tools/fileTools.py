@@ -23,13 +23,7 @@ def read_config(
     config: Annotated[str, "The config name, e.g., CONFIG_KASAN"]
 ) -> Annotated[bool, "whether the config is enabled"]:
     """
-    this tool is used to make sure whether the config is enabled
-    
-    Args:
-        config: the config name,e.g., CONFIG_KASAN
-        
-    Returns:
-        whether the config is enabled
+    Used to make sure whether the config is enabled
     """
     if not configMap:
         with open(get_config_path(), 'r') as file:
@@ -56,16 +50,7 @@ def read_file_by_line_number(
     line_range: Annotated[int, "The context range of the line number, default is 10 lines"] = 10
 ) -> Annotated[str, "Context content of the specified line"]:
     """
-    This tool is used to read the context content of a specified line number in a file.
-
-    Args:
-        file_path (str): The path of the file (absolute path required)
-        line_number (int): The line number to read (starting from 1)
-        line_range (int): The context range of the line number, default is 10 lines
-
-    Returns:
-        str: The context content of the specified line, or error message if line number is out of range.
-
+    Used to read the context content of a specified line number in a file.
     """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -100,11 +85,8 @@ def read_file(
     file_path: Annotated[str, "The path of the file (absolute path required)"]
 ) -> Annotated[str, "Complete content of the file"]:
     """
-    This tool is used to read the content of a file at the specified path.
+    Used to read the content of a file at the specified path.
     If there is an error reading the file, please make sure the path is absolute.
-    
-    Args:
-        file_path (str): The path of the file
     """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
