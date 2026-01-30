@@ -2,6 +2,11 @@ from langchain_core.tools import tool
 from typing import Annotated
 import requests
 from bs4 import BeautifulSoup
+from langchain_community.tools.tavily_search import TavilySearchResults
+import os
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 # Add proxy support in future
 
@@ -11,51 +16,25 @@ def web_search(
     max_results: Annotated[int, "Maximum number of results to return"] = 5
 ) -> Annotated[str, "Search results from the web"]:
     """
-    Search the web for information related to kernel bugs, CVEs, patches, and technical documentation.
+    Search the web for information related to kernel bugs, CVEs, patches, and technical documentation using Tavily.
     
-    This tool uses DuckDuckGo API (no API key required) to search the web and returns relevant results.
+    This tool uses Tavily Search API (requires TAVILY_API_KEY env var) to search the web and returns relevant results.
     Useful for finding:
     - Linux kernel patches and commits
     - CVE details and security advisories
     - Bug reports and discussions
     - Technical documentation
-    
-    Args:
-        query (str): The search query (e.g., "Linux kernel use-after-free CVE-2023-1234")
-        max_results (int): Maximum number of results to return (default: 5)
-        
-    Returns:
-        str: Formatted search results with titles, URLs, and snippets
     """
     try:
-        # Use DuckDuckGo HTML search (no API key needed)
-        url = "https://html.duckduckgo.com/html/"
-        params = {"q": query}
-        headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-        }
+        # Check for API key
+        if "TAVILY_API_KEY" not in os.environ:
+             return "Error: TAVILY_API_KEY environment variable not set. Please set it in agent_core/.env"
+
+        tavily = TavilySearchResults(max_results=max_results)
         
-        response = requests.get(url, params=params, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        results = []
-        
-        # Parse search results
-        for result in soup.find_all('div', class_='result')[:max_results]:
-            title_elem = result.find('a', class_='result__a')
-            snippet_elem = result.find('a', class_='result__snippet')
-            
-            if title_elem:
-                title = title_elem.get_text(strip=True)
-                link = title_elem.get('href', '')
-                snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
-                
-                results.append({
-                    'title': title,
-                    'url': link,
-                    'snippet': snippet
-                })
+        # Execute search
+        # Tavily tool expects {"query": "..."} input
+        results = tavily.invoke({"query": query})
         
         if not results:
             return f"No search results found for: {query}"
@@ -63,20 +42,20 @@ def web_search(
         # Format output
         output = f"Search results for '{query}':\n\n"
         for i, result in enumerate(results, 1):
-            output += f"{i}. {result['title']}\n"
-            output += f"   URL: {result['url']}\n"
-            if result['snippet']:
-                output += f"   {result['snippet']}\n"
+            # Tavily returns 'url' and 'content' usually
+            url = result.get('url', 'No URL')
+            content = result.get('content', '')
+            # Sometimes title is not returned by default Tavily wrapper, but content is the snippet
+            
+            output += f"{i}. URL: {url}\n"
+            if content:
+                output += f"   Snippet: {content}\n"
             output += "\n"
         
         return output
         
-    except requests.Timeout:
-        return "Error: Search request timed out"
-    except requests.RequestException as e:
-        return f"Error: Failed to perform web search: {str(e)}"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: Failed to perform Tavily search: {str(e)}"
 
 
 @tool
@@ -92,13 +71,6 @@ def fetch_webpage_content(
     - CVE descriptions from NVD or Mitre
     - Documentation pages
     - Bug tracker entries
-    
-    Args:
-        url (str): The URL of the webpage to fetch
-        max_length (int): Maximum character length of content to return (default: 5000)
-        
-    Returns:
-        str: The extracted text content from the webpage
     """
     try:
         headers = {

@@ -1,14 +1,11 @@
 from .prompt import *
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
-from agent_core.model import get_model,MAX_RECURSION_DEPTH
+from ..agent_core.model import get_model,MAX_RECURSION_DEPTH
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Optional
 from pydantic import BaseModel, Field
-from agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+from ..agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from langfuse.langchain import CallbackHandler
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())

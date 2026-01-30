@@ -1,6 +1,11 @@
 import subprocess
 from typing import List, Optional, Annotated
 from langchain.tools import tool
+try:
+    from langchain_community.tools import ShellTool
+except ImportError:
+    # Fallback/Placeholder if dependency is missing, though user said usage is direct.
+    ShellTool = None
 
 #extend in future if needed
 ALLOWED_COMMANDS = {
@@ -29,6 +34,7 @@ ALLOWED_COMMANDS = {
     # System info
     "uname": ["uname"],              # System information
     "which": ["which"],              # Locate a command
+    "ls": ["ls"],           
 }
 
 @tool
@@ -38,40 +44,27 @@ def safe_shell_command(
 ) -> Annotated[str, "Output of the shell command"]:
     """
     Execute allowed shell commands safely
-    
-    Args:
-        command_alias (str): The alias of the command to execute (must be in ALLOWED_COMMANDS)
-        cmd_args (List[str], optional): Additional arguments for the command
-        
-    Returns:
-        str: The output of the command or error message
     """
     if command_alias not in ALLOWED_COMMANDS:
         return f"Error: Command '{command_alias}' is not allowed. Allowed commands: {list(ALLOWED_COMMANDS.keys())}"
     
-    try:
-        full_command = ALLOWED_COMMANDS[command_alias].copy()
-        if cmd_args:
-            full_command.extend(cmd_args)
+    # Construct the command string from alias and args
+    full_command_parts = ALLOWED_COMMANDS[command_alias].copy()
+    if cmd_args:
+        full_command_parts.extend(cmd_args)
     
-        result = subprocess.run(
-            full_command,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False
-        )
-        
-        output = result.stdout.strip()
-        if result.stderr:
-            output += f"\n[stderr] {result.stderr.strip()}"
-        if result.returncode != 0 and not output:
-            output = f"Command failed with exit code {result.returncode}"
-            
-        return output
-        
-    except subprocess.TimeoutExpired:
-        return "Error: Command timed out."
+    # Clean up arguments to form a string command for ShellTool
+    # Note: ShellTool executes string in shell. 
+    # We reconstruct the command line string.
+    # Simple join might be risky with spaces, but ShellTool expects a string.
+    # For better safety/correctness, we should quote arguments if they contain spaces, 
+    # but here we trust the split logic or just join safely.
+    import shlex
+    full_command_str = shlex.join(full_command_parts)
+
+    try:
+        shell_tool = ShellTool()
+        return shell_tool.run(full_command_str)
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
@@ -98,8 +91,8 @@ def test_command_tools():
         print(f"Snippet: {output[:100]}...")
 
     # 3. Test disallowed command
-    print("\n[Test] Disallowed command: ls (assuming not in list)")
-    output = safe_shell_command.func("ls", ["-la"])
+    print("\n[Test] Disallowed command: lsmod (assuming not in list)")
+    output = safe_shell_command.func("lsmod", [])
     print(f"Result: {output}")
 
     # 4. Test error handling (non-existent file for cat)
