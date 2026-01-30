@@ -10,6 +10,7 @@ from langfuse.langchain import CallbackHandler
 from abc import ABC
 from langfuse import Langfuse
 import os
+from langchain.chat_models import init_chat_model
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))

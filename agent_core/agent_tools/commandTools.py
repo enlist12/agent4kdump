@@ -1,11 +1,7 @@
-import subprocess
 from typing import List, Optional, Annotated
 from langchain.tools import tool
-try:
-    from langchain_community.tools import ShellTool
-except ImportError:
-    # Fallback/Placeholder if dependency is missing, though user said usage is direct.
-    ShellTool = None
+from langchain_community.tools import ShellTool
+
 
 #extend in future if needed
 ALLOWED_COMMANDS = {
