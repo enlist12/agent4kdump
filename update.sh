@@ -1,0 +1,1 @@
+pipreqs . --force --ignore ./codequery,./kernel/,./kdump_analyze/crash-9.0.0,./kdump_analyze/libkdumpfile,./kdump_analyze/pykdumpfile
