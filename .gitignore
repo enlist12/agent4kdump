@@ -13,3 +13,4 @@ codequery
 config.yaml
 cache
 agent_core/.env
+.env

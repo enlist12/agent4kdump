@@ -1,7 +1,7 @@
 from openai import OpenAI, BadRequestError
 import chromadb
 from rank_bm25 import BM25Okapi
-from ..log import *
+from log import get_logger
 from llama_index.core import SimpleDirectoryReader
 import hashlib
 

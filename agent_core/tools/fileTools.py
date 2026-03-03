@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 import json
 from typing import Annotated
-
+import os
 # Global variable to hold the config path
 _CONFIG_PATH = None
 
@@ -73,8 +73,6 @@ def read_file_by_line_number(
 
     except FileNotFoundError:
         return f"❌ File not found: {file_path}"
-    except PermissionError:
-        return f"❌ Permission denied: {file_path}"
     except json.JSONDecodeError:
         return "❌ Input is not a valid JSON string"
     except Exception as e:

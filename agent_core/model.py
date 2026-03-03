@@ -11,14 +11,14 @@ from abc import ABC
 from langfuse import Langfuse
 import os
 from langchain.chat_models import init_chat_model
-from dotenv import load_dotenv
+from dotenv import load_dotenv,find_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+load_dotenv(find_dotenv())
 
 langfuse = Langfuse(
   secret_key=os.environ['LANGFUSE_SECRET_KEY'],
   public_key=os.environ['LANGFUSE_PUBLIC_KEY'],
-  host=os.environ['LANGFUSE_BASE_URL']
+  host=os.environ['LANGFUSE_HOST']
 )
 
 MAX_RECURSION_DEPTH = 100

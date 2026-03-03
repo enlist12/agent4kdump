@@ -10,7 +10,7 @@ def main():
 
     # 1. File Tools
     try:
-        from agent_core.agent_tools.fileTools import test_file_tools
+        from agent_core.tools.fileTools import test_file_tools
         test_file_tools()
         print("="*50)
     except Exception as e:
@@ -20,7 +20,7 @@ def main():
 
     # 2. Command Tools
     try:
-        from agent_core.agent_tools.commandTools import test_command_tools
+        from agent_core.tools.commandTools import test_command_tools
         test_command_tools()
         print("="*50)
     except Exception as e:
@@ -28,7 +28,7 @@ def main():
 
     # 3. Web Search Tools
     try:
-        from agent_core.agent_tools.WebSearch import test_web_search
+        from agent_core.tools.WebSearch import test_web_search
         test_web_search()
         print("="*50)
     except Exception as e:
@@ -36,7 +36,7 @@ def main():
 
     # 4. Code Query Tools
     try:
-        from agent_core.agent_tools.codeQuery.tools import test_code_query_tools
+        from agent_core.tools.codeQuery.tools import test_code_query_tools
         test_code_query_tools()
         print("="*50)
     except Exception as e:

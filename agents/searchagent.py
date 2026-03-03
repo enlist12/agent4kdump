@@ -1,3 +1,5 @@
+import build
+
 from .prompt import *
 from ..agent_core.model import get_model,MAX_RECURSION_DEPTH
 from langchain.agents import create_agent
@@ -5,7 +7,8 @@ from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Optional
 from pydantic import BaseModel, Field
-from ..agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+from ..agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+from ..agent_core.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
@@ -55,7 +58,7 @@ def parse_search_results(results:KnownBugAnalysisResult):
     }
     
 
-def createSearchAgent(model_name="openai", api_key=None, provider=None):
+def create_search_agent(model_name="openai", api_key=None, provider=None):
     llm = get_model(provider_name=model_name, key=api_key)
     
     tools = SEARCH_AGENT_TOOLS
@@ -63,7 +66,8 @@ def createSearchAgent(model_name="openai", api_key=None, provider=None):
     agent_graph = create_agent(
         model=llm,
         tools=tools,
-        system_prompt=SystemMessage(content=TEST_PROMPT),
+        middleware=build_shell_middleware(),
+        system_prompt=TEST_PROMPT,
         response_format=KnownBugAnalysisResult,
         debug=True,
     )
@@ -71,7 +75,7 @@ def createSearchAgent(model_name="openai", api_key=None, provider=None):
     return agent_graph
 
 def runSearchAgent():
-    agent = createSearchAgent(model_name="openai", api_key=None, provider=None)
+    agent = create_search_agent(model_name="openai", api_key=None, provider=None)
 
     initial_input = {"messages": [HumanMessage(content=ANALYSIS_MESSAGE+COT_PROMPT)]}
     

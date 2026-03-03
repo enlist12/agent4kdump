@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.memory import MemorySaver
 from ..model import get_model, MAX_RECURSION_DEPTH
+from .commandTools import build_shell_middleware
 
 MAX_AGENTS = 5
 _SUB_AGENTS: Dict[int, Dict[str, Any]] = {}
@@ -27,7 +28,7 @@ def create_sub_agent(
     try:
         model = get_model()
 
-        from agent_core.agent_tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+        from agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
         tools = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
 
         memory = MemorySaver()
@@ -36,7 +37,8 @@ def create_sub_agent(
             model=model,
             tools=tools,
             system_prompt=SystemMessage(content=system_prompt),
-            checkpointer=memory
+            checkpointer=memory,
+            middleware=build_shell_middleware()
         )
         
         agent_id = _NEXT_AGENT_ID

@@ -1,4 +1,3 @@
-from .commandTools import safe_shell_command
 from .gdbTools import execute_gdb_command, getCrashReport
 from .fileTools import read_file, read_file_by_line_number, read_config
 from .WebSearch import web_search, fetch_webpage_content
@@ -6,7 +5,6 @@ from .agent import create_sub_agent, chat_with_sub_agent, list_sub_agents, remov
 from .codeQuery import CODEQUERY_TOOLS
 
 CUSTOM_AGENT_TOOLS = {
-    "Execute allowed shell commands safely": safe_shell_command,
     "Execute a GDB command to analyze kernel dump (vmcore) via kdump-gdbserver": execute_gdb_command,
     "Read the content of a file at the specified path": read_file,
     "Read the context content of a specified line number in a file": read_file_by_line_number,

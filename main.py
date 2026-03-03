@@ -9,11 +9,11 @@ from rich.table import Table
 from rich.prompt import Confirm
 from kdump_analyze.kdump import KdumpAnalysis
 import os
-from agent_core.agent_tools.codeQuery.codequery import create_cq_db, set_proj_path
-from agent_core.agent_tools.gdbTools import set_kdump_analysis_instance
-from agent_core.agent_tools.fileTools import set_config_path
+from agent_core.tools.codeQuery.codequery import create_cq_db, set_proj_path
+from agent_core.tools.gdbTools import set_kdump_analysis_instance
+from agent_core.tools.fileTools import set_config_path
 from contextlib import contextmanager
-from searchAgent.search import runSearchAgent,parse_search_results, KnownBugAnalysisResult
+from agents.searchagent import runSearchAgent,parse_search_results, KnownBugAnalysisResult
 
 config_path = None
 kdump_analysis = None

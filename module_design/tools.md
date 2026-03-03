@@ -1,5 +1,5 @@
 # Tools
-./agent_core/agent_tools
+./agent_core/tools
 ## Read_Config
 功能：告诉 Agent 某个配置是否开启，因为内核中许多结构体和函数的实现依赖于配置
 实现：读取内核配置文件(.config)，并维护一个dict，存入开启的配置
