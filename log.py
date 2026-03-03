@@ -3,7 +3,7 @@ import logging
 from colorama import Fore, Style, init
 
 init(autoreset=True)
-
+# need to change TODO
 class ColorFormatter(logging.Formatter):
     def format(self, record):
         msg = super().format(record)
