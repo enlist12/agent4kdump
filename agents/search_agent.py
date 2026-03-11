@@ -1,14 +1,14 @@
 import build
 
 from .prompt import *
-from ..agent_core.model import get_model,MAX_RECURSION_DEPTH
+from agent_core.model import get_model,MAX_RECURSION_DEPTH
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, Field
-from ..agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
-from ..agent_core.tools.commandTools import build_shell_middleware
+from agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+from agent_core.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
@@ -21,14 +21,14 @@ class KnownBugAnalysisResult(BaseModel):
     """The final result determining if the crash is a known bug."""
     is_known_bug: bool = Field(description="True if the crash matches a known CVE or Syzbot bug or designed deliberately, False otherwise")
     evidence: str = Field(description="The evidence supporting the conclusion (e.g., matched stack trace, CVE ID, Syzbot ID, patch analysis)")
-    matched_url: Optional[str] = Field(description="The matched CVE URL or Syzbot URL or other relevant URL if is_known_bug is True")
+    matched_url: Optional[List[str]] = Field(description="The matched CVE URLs or Syzbot URLs or other relevant URLs if is_known_bug is True")
     extra_info: Optional[str] = Field(description="Any additional information or tools that you need")
 
 @tool
 def submit_known_bug_analysis(
     is_known_bug: bool,
     evidence: str,
-    matched_url: Optional[str] = None,
+    matched_url: Optional[List[str]] = None,
     extra_info: Optional[str] = None
 ):
     """
@@ -58,8 +58,8 @@ def parse_search_results(results:KnownBugAnalysisResult):
     }
     
 
-def create_search_agent(model_name="openai", api_key=None, provider=None):
-    llm = get_model(provider_name=model_name, key=api_key)
+def create_search_agent():
+    llm = get_model()
     
     tools = SEARCH_AGENT_TOOLS
 
@@ -75,7 +75,7 @@ def create_search_agent(model_name="openai", api_key=None, provider=None):
     return agent_graph
 
 def runSearchAgent():
-    agent = create_search_agent(model_name="openai", api_key=None, provider=None)
+    agent = create_search_agent()
 
     initial_input = {"messages": [HumanMessage(content=ANALYSIS_MESSAGE+COT_PROMPT)]}
     

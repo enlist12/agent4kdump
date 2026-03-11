@@ -11,9 +11,9 @@ from kdump_analyze.kdump import KdumpAnalysis
 import os
 from agent_core.tools.codeQuery.codequery import create_cq_db, set_proj_path
 from agent_core.tools.gdbTools import set_kdump_analysis_instance
-from agent_core.tools.fileTools import set_config_path
+from agent_core.tools.fileTools import set_linux_path
 from contextlib import contextmanager
-from agents.searchagent import runSearchAgent,parse_search_results, KnownBugAnalysisResult
+from agents.search_agent import runSearchAgent,parse_search_results, KnownBugAnalysisResult
 
 config_path = None
 kdump_analysis = None
@@ -52,8 +52,6 @@ vmcore = config.get('vmcore', './vmcore')
 kdump_server = config.get('kdump_server', './kdump_server')
 syzbot_data = config.get('syzbot_data', './syzbot_data')
 enable_rag = config.get('enable_rag', False)
-api_key = config.get("api_key", None)
-
 linux_path = os.path.abspath(linux)
 vmcore = os.path.abspath(vmcore)
 kdump_server = os.path.abspath(kdump_server)
@@ -74,7 +72,6 @@ table.add_row("VMCore", vmcore)
 table.add_row("Kdump Server", kdump_server)
 table.add_row("Syzbot Data", syzbot_data)
 table.add_row("RAG Enabled", "Yes" if enable_rag else "No")
-table.add_row("API Key", "***" if api_key else "Not Set")
 
 console.print(table)
 
@@ -84,11 +81,6 @@ if not Confirm.ask("\nProceed with this configuration?", default=True):
 
 # initialize rag
 if enable_rag:
-    if not api_key:
-        #console.print("[red]Error: RAG is enabled but API key is not provided.[/red]")
-        main_log.error("RAG enabled but API key missing")
-        sys.exit(1)
-    
     if not syzbot_data:
         #console.print("[red]Error: RAG is enabled but syzbot_data path is not provided.[/red]")
         main_log.error("RAG enabled but syzbot_data path missing")
@@ -97,7 +89,7 @@ if enable_rag:
     try:
         main_log.info("Initializing RAG retrieval system...")
         #console.print("[cyan]Initializing RAG retrieval system...[/cyan]")
-        rag_retriever = EmbeddingModel(data_dir=syzbot_data, api_key=api_key)
+        rag_retriever = EmbeddingModel(data_dir=syzbot_data)
         
         if not hasattr(rag_retriever, 'client') or rag_retriever.client is None:
             raise ValueError("Failed to initialize OpenAI client, please check your API key")
@@ -137,8 +129,7 @@ with catch_error("Loading kdump-gdbserver"):
 with catch_error("Loading GDB"):
     kdump_analysis.loadGDB()
     
-config_path = os.path.join(linux_path,".config")
-set_config_path(config_path)
+set_linux_path(linux_path)
 
 # we need config to extract kernel function and macros
 if not os.path.exists(config_path):

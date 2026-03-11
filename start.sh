@@ -1,6 +1,7 @@
 qemu-system-x86_64 \
 	-m 4G \
 	-smp 4 \
+	-cpu host\
 	-kernel kernel/$1/arch/x86/boot/bzImage \
 	-append "console=ttyS0 panic_on_oops=0 panic=0 nokaslr  root=/dev/sda earlyprintk=serial net.ifnames=0" \
 	-drive file=image/bullseye.img,format=raw \

@@ -128,7 +128,7 @@ def __get_func_cq(project_path, function_name):
         if '$HOME' in line:
             # Extract the path after the project base dir
             base_dir_pattern = os.path.basename(project_path)
-            start_index = line.find(base_dir_pattern)
+            start_index = line.rfind(base_dir_pattern)
             if start_index != -1:
                 # Adjust to get the path relative to the project's base directory
                 # relative_path = line[start_index + len(base_dir_pattern) + 1:].split(':')[0]
@@ -137,7 +137,7 @@ def __get_func_cq(project_path, function_name):
                     line[start_index + len(base_dir_pattern) + 1:].split(':'))
         else:
             base_dir_pattern = os.path.basename(project_path)
-            relative_path_start_index = line.find(
+            relative_path_start_index = line.rfind(
                 base_dir_pattern) + len(base_dir_pattern)+1
             relative_path = line[relative_path_start_index:].split(':')
             # return relative_path
@@ -188,7 +188,7 @@ def __get_struct_cq(project_path, struct_name):
         if '$HOME' in line:
             # Extract the path after the project base dir
             base_dir_pattern = os.path.basename(project_path)
-            start_index = line.find(base_dir_pattern)
+            start_index = line.rfind(base_dir_pattern)
             if start_index != -1:
                 # Adjust to get the path relative to the project's base directory
                 # relative_path = line[start_index + len(base_dir_pattern) + 1:].split(':')[0]
@@ -197,7 +197,7 @@ def __get_struct_cq(project_path, struct_name):
                     line[start_index + len(base_dir_pattern) + 1:].split(':'))
         else:
             base_dir_pattern = os.path.basename(project_path)
-            relative_path_start_index = line.find(
+            relative_path_start_index = line.rfind(
                 base_dir_pattern) + len(base_dir_pattern)+1
             relative_path = line[relative_path_start_index:].split(':')
             # return relative_path
@@ -238,13 +238,13 @@ def __get_union_cq(project_path, union_name):
         
         if '$HOME' in line:
             base_dir_pattern = os.path.basename(project_path)
-            start_index = line.find(base_dir_pattern)
+            start_index = line.rfind(base_dir_pattern)
             if start_index != -1:
                 res.append(
                     line[start_index + len(base_dir_pattern) + 1:].split(':'))
         else:
             base_dir_pattern = os.path.basename(project_path)
-            relative_path_start_index = line.find(
+            relative_path_start_index = line.rfind(
                 base_dir_pattern) + len(base_dir_pattern)+1
             relative_path = line[relative_path_start_index:].split(':')
             res.append(relative_path)
@@ -305,7 +305,7 @@ def __get_global_var_cq(project_path, var_name, grep_pattern='struct'):
         if '$HOME' in line:
             # Extract the path after the project base dir
             base_dir_pattern = os.path.basename(project_path)
-            start_index = line.find(base_dir_pattern)
+            start_index = line.rfind(base_dir_pattern)
             if start_index != -1:
                 # Adjust to get the path relative to the project's base directory
                 # relative_path = line[start_index + len(base_dir_pattern) + 1:].split(':')[0]
@@ -314,7 +314,7 @@ def __get_global_var_cq(project_path, var_name, grep_pattern='struct'):
                     line[start_index + len(base_dir_pattern) + 1:].split(':'))
         else:
             base_dir_pattern = os.path.basename(project_path)
-            relative_path_start_index = line.find(
+            relative_path_start_index = line.rfind(
                 base_dir_pattern) + len(base_dir_pattern)+1
             relative_path = line[relative_path_start_index:].split(':')
             # return relative_path
@@ -411,13 +411,13 @@ def __get_caller_cq(project_path, function_name):
         if '$HOME' in line:
             # Extract the path after the project base dir
             base_dir_pattern = os.path.basename(project_path)
-            start_index = line.find(base_dir_pattern)
+            start_index = line.rfind(base_dir_pattern)
             if start_index != -1:
                 res.append(
                     line[start_index + len(base_dir_pattern) + 1:].split(':'))
         else:
             base_dir_pattern = os.path.basename(project_path)
-            relative_path_start_index = line.find(
+            relative_path_start_index = line.rfind(
                 base_dir_pattern) + len(base_dir_pattern)+1
             relative_path = line[relative_path_start_index:].split(':')
             res.append(relative_path)
@@ -464,13 +464,13 @@ def __get_callee_cq(project_path, function_name):
         if '$HOME' in line:
             # Extract the path after the project base dir
             base_dir_pattern = os.path.basename(project_path)
-            start_index = line.find(base_dir_pattern)
+            start_index = line.rfind(base_dir_pattern)
             if start_index != -1:
                 res.append(
                     line[start_index + len(base_dir_pattern) + 1:].split(':'))
         else:
             base_dir_pattern = os.path.basename(project_path)
-            relative_path_start_index = line.find(
+            relative_path_start_index = line.rfind(
                 base_dir_pattern) + len(base_dir_pattern)+1
             relative_path = line[relative_path_start_index:].split(':')
             res.append(relative_path)

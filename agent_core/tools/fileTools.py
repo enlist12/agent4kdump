@@ -1,32 +1,32 @@
 from langchain_core.tools import tool
 import json
 from typing import Annotated
-import os
+from os import path
 # Global variable to hold the config path
-_CONFIG_PATH = None
+LINUX_PATH = None
 
-def set_config_path(path):
-    """Set the global config path."""
-    global _CONFIG_PATH
-    _CONFIG_PATH = path
+def set_linux_path(path):
+    """Set the global linux path."""
+    global LINUX_PATH
+    LINUX_PATH = path
 
-def get_config_path():
-    """Get the global config path."""
-    if _CONFIG_PATH is None:
-        raise RuntimeError("config_path not set. Call set_config_path() first.")
-    return _CONFIG_PATH
+def get_linux_path():
+    """Get the global linux path."""
+    if LINUX_PATH is None:
+        raise RuntimeError("linux_path not set. Call set_linux_path() first.")
+    return LINUX_PATH
 
 configMap = {}
 
 @tool
 def read_config(
-    config: Annotated[str, "The config name, e.g., CONFIG_KASAN"]
+    config_name: Annotated[str, "The config name, e.g., CONFIG_KASAN"]
 ) -> Annotated[bool, "whether the config is enabled"]:
     """
     Used to make sure whether the config is enabled
     """
     if not configMap:
-        with open(get_config_path(), 'r') as file:
+        with open(path.join(get_linux_path(), ".config"), 'r') as file:
             for line in file:
                 line = line.strip()
                 if line.startswith("# CONFIG_"):
@@ -39,13 +39,13 @@ def read_config(
                             configMap[key] = True
                         else:
                             configMap[key] = False
-    if config not in configMap:
+    if config_name not in configMap:
         return False
-    return configMap[config]
+    return configMap[config_name]
 
 @tool
 def read_file_by_line_number(
-    file_path: Annotated[str, "The path of the file (absolute path required)"],
+    file_path: Annotated[str, "The path of the file"],
     line_number: Annotated[int, "The line number to read (starting from 1)"],
     line_range: Annotated[int, "The context range of the line number, default is 10 lines"] = 10
 ) -> Annotated[str, "Context content of the specified line"]:
@@ -53,6 +53,8 @@ def read_file_by_line_number(
     Used to read the context content of a specified line number in a file.
     """
     try:
+        if not file_path.startswith("/"):
+            file_path = path.join(get_linux_path(), file_path)
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
@@ -80,13 +82,15 @@ def read_file_by_line_number(
     
 @tool
 def read_file(
-    file_path: Annotated[str, "The path of the file (absolute path required)"]
+    file_path: Annotated[str, "The path of the file"]
 ) -> Annotated[str, "Complete content of the file"]:
     """
     Used to read the content of a file at the specified path.
     If there is an error reading the file, please make sure the path is absolute.
     """
     try:
+        if not file_path.startswith("/"):
+            file_path = path.join(get_linux_path(), file_path)
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         return content
@@ -110,10 +114,10 @@ def test_file_tools():
     print("\n[Test] read_config")
     # Setup config path
     try:
-        set_config_path(CONFIG_PATH)
-        print(f"Config path set to: {CONFIG_PATH}")
+        set_linux_path(KERNEL_DIR)
+        print(f"Linux path set to: {KERNEL_DIR}")
     except Exception as e:
-        print(f"❌ Failed to set config path: {e}")
+        print(f"❌ Failed to set linux path: {e}")
 
     # Test reading a likely existing config
     # Use .func to bypass StructuredTool and test logic directly

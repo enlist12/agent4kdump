@@ -8,7 +8,8 @@ import shutil
 # extend in future
 crash_word = ['BUG:',
               'Oops:',
-              'Kernel panic']
+              'Kernel panic',
+              'general protection fault']
 
 end_word = ["---[ end"]
 
@@ -186,10 +187,10 @@ class KdumpAnalysis:
                         e_idx = idx
         
         if s_idx == -1:
-            filter_report = report[-100:]  # last 100 lines
+            filter_report = report[-150:]  # last 150 lines
         elif e_idx != -1:
             if e_idx - s_idx <= 20:
-                filter_report = report[-100:]
+                filter_report = report[-150:]
             else:
                 filter_report = report[s_idx:e_idx+1]
         else:

@@ -13,3 +13,8 @@ config.yaml
 cache
 agent_core/.env
 .env
+kdump_analyze/*
+!kdump_analyze/kdump.py
+scp.sh
+case/
+syzbotAgent/

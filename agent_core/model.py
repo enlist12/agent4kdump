@@ -21,15 +21,15 @@ langfuse = Langfuse(
   host=os.environ['LANGFUSE_HOST']
 )
 
+model_name = os.environ.get("MODEL_NAME", "gpt-4o")
+provider_name = os.environ.get("MODEL_PROVIDER", "openai")
+key = os.environ.get("API_KEY", None)
+url = os.environ.get("LLM_BASE_URL", None)
+
 MAX_RECURSION_DEPTH = 100
 
 
-def get_model(
-    provider_name: str,
-    model_name: Optional[str],
-    url: Optional[str],
-    key: Optional[str],
-) -> Any:
+def get_model() -> Any:
     return init_chat_model(
         model=model_name, model_provider=provider_name, api_key=key, base_url=url
     )
