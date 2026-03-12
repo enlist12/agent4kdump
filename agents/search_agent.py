@@ -20,10 +20,10 @@ Start analysis. Determine if this crash is a known bug (CVE/Syzbot).
 class KnownBugAnalysisResult(BaseModel):
     """The final result determining if the crash is a known bug."""
     is_known_bug: bool = Field(description="True if the crash matches a known CVE or Syzbot bug, False otherwise. BINARY decision only - no ambiguity.")
-    evidence: str = Field(description="The evidence supporting the conclusion. MUST include your 4-checkpoint verification scores if is_known_bug=True")
-    matched_url: Optional[List[str]] = Field(description="The matched CVE URLs or Syzbot URLs or other relevant URLs if is_known_bug is True")
-    extra_info: Optional[str] = Field(description="Any additional information or context")
-    verification_details: Optional[str] = Field(description="Your explicit self-check answers from Phase 4 (REQUIRED if is_known_bug=True)")
+    evidence: str = Field(description="The evidence supporting the conclusion. MUST include 4-checkpoint verification (Call Trace, Symptom Match, Patch Verification, Falsification) if is_known_bug=True")
+    matched_url: Optional[List[str]] = Field(default=None, description="The matched CVE URLs or Syzbot URLs or other relevant URLs if is_known_bug is True")
+    extra_info: Optional[str] = Field(default=None, description="Any additional information or context")
+    verification_details: Optional[str] = Field(default=None, description="Your explicit self-check answers from Phase 4 (REQUIRED if is_known_bug=True)")
 
 @tool
 def submit_known_bug_analysis(
@@ -38,8 +38,8 @@ def submit_known_bug_analysis(
     Call this tool ONLY when you have completed Phase 4 self-verification.
     
     Args:
-        is_known_bug: True if match found (score ≥30/40 AND root cause match AND source is vulnerable), False otherwise. BINARY decision required.
-        evidence: Complete explanation with 4-checkpoint scores. If is_known_bug=True, MUST show source code is NOT patched.
+        is_known_bug: True if match found (score ≥30/40 AND symptom match AND source is vulnerable), False otherwise. BINARY decision required.
+        evidence: Complete explanation with 4-checkpoint analysis (Call Trace, Symptom, Patch, Falsification). If is_known_bug=True, MUST show source code is NOT patched.
         matched_url: List of relevant URLs (syzbot/CVE/patch links) if is_known_bug=True.
         extra_info: Additional context or suggestions.
         verification_details: Your explicit answers to the 4 self-check questions from Phase 4 (REQUIRED if is_known_bug=True).
@@ -77,8 +77,8 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
             return False, "Verification details missing or too brief (need Phase 4 self-check answers)"
         
         # Check if evidence contains checkpoint scores
-        if "Call Trace" not in result.evidence or "Root Cause" not in result.evidence:
-            return False, "Evidence must include 4-checkpoint verification scores"
+        if "Call Trace" not in result.evidence or "Symptom" not in result.evidence:
+            return False, "Evidence must include 4-checkpoint verification (Call Trace, Symptom, Patch, Falsification)"
         
         # Must verify that source code is NOT patched
         evidence_lower = result.evidence.lower()
@@ -92,6 +92,23 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
         
         if not has_source_check:
             return False, "Must explicitly verify that source code is NOT patched (compare patch with current source)"
+    else:
+        # If claiming no match, must show sufficient search effort
+        evidence_lower = result.evidence.lower()
+        
+        # Check if they tried multiple searches
+        search_indicators = [
+            "query" in evidence_lower or "search" in evidence_lower,
+            "tried" in evidence_lower or "attempt" in evidence_lower,
+            "0 results" in evidence_lower or "no results" in evidence_lower
+        ]
+        
+        if not any(search_indicators):
+            return False, "When reporting is_known_bug=False, must document search attempts (which queries tried, how many results)"
+        
+        # Warn if suspiciously few searches mentioned
+        if evidence_lower.count("query") + evidence_lower.count("search") + evidence_lower.count("tried") < 3:
+            return False, "Evidence suggests insufficient search attempts (need at least 8-10 diverse queries across 4 rounds)"
     
     return True, "Result meets quality standards"
 
@@ -135,6 +152,8 @@ Your previous result did not meet quality standards. Please:
 1. Be MORE THOROUGH in your verification (Phase 3)
 2. Complete the FULL self-check in Phase 4 with explicit checkpoint scores
 3. If claiming a match (is_known_bug=True), you MUST:
+   - Compare call trace structure
+   - Check if SYMPTOMS match the patch DESCRIPTION (you don't need to analyze root cause deeply)
    - Verify the source code is NOT patched (compare patch with current source)
    - Provide verification_details showing you checked the source code
    - Include all 4 checkpoint scores in evidence

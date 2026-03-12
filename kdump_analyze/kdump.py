@@ -4,6 +4,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
 from log import *
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # extend in future
 crash_word = ['BUG:',
@@ -198,7 +199,10 @@ class KdumpAnalysis:
             
         report.clear()
         
-        # Strip time and other prefixes
+        # First pass: strip prefixes and collect addresses
+        processed_lines = []
+        addr_tasks = []  # (line_idx, addr_info, original_line)
+        
         for line in filter_report:
             line = line.strip()
             # GDB log would add \n" at the end of line
@@ -211,21 +215,48 @@ class KdumpAnalysis:
             # Remove unreliable trace
             if line.startswith(" ?"):
                 line = line[2:]
+            
+            processed_lines.append(line)
+            
+            # Collect addresses for parallel processing
             if exist and tool is not None:
                 addr_info = self.extractAddress(line)
                 if addr_info:
-                    try:
-                        cmd = f'{tool} -e {os.path.join(self.linux,"vmlinux")} -i -a {addr_info}'
-                        addr2line_output = os.popen(cmd).read().strip()
-                        # extract real file location
-                        addr2line_output = addr2line_output.split('\n')[-1]
-                        idx = addr2line_output.find(':')
+                    addr_tasks.append((len(processed_lines) - 1, addr_info))
+        
+        # Second pass: parallel addr2line execution
+        addr_results = {}  # line_idx -> translated_info
+        
+        if addr_tasks and exist and tool is not None:
+            def run_addr2line(task):
+                line_idx, addr_info = task
+                try:
+                    cmd = f'{tool} -e {os.path.join(self.linux,"vmlinux")} -i -a {addr_info}'
+                    addr2line_output = os.popen(cmd).read().strip()
+                    # extract real file location
+                    addr2line_output = addr2line_output.split('\n')[-1]
+                    idx = addr2line_output.find(':')
+                    if idx != -1:
                         file_path = addr2line_output[:idx]
                         relpath = os.path.relpath(file_path, self.linux)
                         form = relpath + addr2line_output[idx:]
-                        line = line + " " + form
-                    except Exception as e:
-                        self.logger.error(f"Failed to run addr2line: {e}")
+                        return line_idx, form
+                except Exception as e:
+                    self.logger.error(f"Failed to run addr2line for {addr_info}: {e}")
+                return line_idx, None
+            
+            # Use ThreadPoolExecutor for parallel execution
+            max_workers = min(len(addr_tasks), 8)  # Limit to 8 threads
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(run_addr2line, task): task for task in addr_tasks}
+                for future in as_completed(futures):
+                    line_idx, result = future.result()
+                    if result:
+                        addr_results[line_idx] = result
+        # Third pass: append addr2line results to lines
+        for idx, line in enumerate(processed_lines):
+            if idx in addr_results:
+                line = line + " " + addr_results[idx]
             report.append(line)
         
         return report
@@ -269,10 +300,10 @@ class KdumpAnalysis:
         
         
 if __name__ == "__main__":
-    linux = '/root/agent4kdump/kernel/linux-next-9e50b94b3eb0d859a2586b5a40d7fd6e5afd9210'
-    vmcore = '/root/agent4kdump/vmcore'
+    linux = '/root/agent4kdump/kernel/linux-0/linux'
+    vmcore = '/root/agent4kdump/case/719da9b149a931f5143f/vmcore'
     crash = '/root/agent4kdump/kdump_analyze/kdump-gdbserver/kdump-gdbserver'
-    gdb_path = './gdb'
+    gdb_path = 'gdb'
     kdump = KdumpAnalysis(linux,crash,vmcore,1234,gdb_path)
     kdump.loadKdump()
     kdump.loadGDB()

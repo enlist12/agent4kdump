@@ -12,7 +12,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 @tool
 def web_search(
-    query: Annotated[str, "The search query (e.g., 'Linux kernel gpiodevice_release null-ptr-deref syzbot')"],
+    query: Annotated[str, "The search query. Construct freely based on your analysis - no fixed format required."],
     max_results: Annotated[int, "Maximum number of results to return"] = 5,
     search_depth: Annotated[str, "Search depth: 'basic' (fast) or 'advanced' (deeper, recommended for technical queries)"] = "advanced",
     include_domains: Annotated[list[str], "List of domains to prioritize, e.g. ['syzkaller.appspot.com', 'nvd.nist.gov', 'lore.kernel.org']. Empty list means no restriction."] = [],
