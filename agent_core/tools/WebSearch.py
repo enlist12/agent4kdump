@@ -12,18 +12,20 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 @tool
 def web_search(
-    query: Annotated[str, "The search query (e.g., 'Linux kernel use-after-free CVE-2023-1234')"],
+    query: Annotated[str, "The search query (e.g., 'Linux kernel gpiodevice_release null-ptr-deref syzbot')"],
     max_results: Annotated[int, "Maximum number of results to return"] = 5,
+    search_depth: Annotated[str, "Search depth: 'basic' (fast) or 'advanced' (deeper, recommended for technical queries)"] = "advanced",
+    include_domains: Annotated[list[str], "List of domains to prioritize, e.g. ['syzkaller.appspot.com', 'nvd.nist.gov', 'lore.kernel.org']. Empty list means no restriction."] = [],
 ) -> Annotated[str, "Search results from the web"]:
     """
     Search the web for information related to kernel bugs, CVEs, patches, and technical documentation using Tavily.
 
     This tool uses Tavily Search API (requires TAVILY_API_KEY env var) to search the web and returns relevant results.
     Useful for finding:
-    - Linux kernel patches and commits
-    - CVE details and security advisories
-    - Bug reports and discussions
-    - Technical documentation
+    - Syzbot crash reports: use include_domains=['syzkaller.appspot.com']
+    - CVE details: use include_domains=['nvd.nist.gov', 'cve.mitre.org']
+    - Kernel patches/commits: use include_domains=['lore.kernel.org', 'git.kernel.org']
+    - Use search_depth='advanced' for better results on technical queries
     """
     if "TAVILY_API_KEY" not in os.environ:
         return "Error: TAVILY_API_KEY environment variable not set. Please set it in agent_core/.env"
@@ -31,7 +33,14 @@ def web_search(
     if max_results <= 0:
         return "Error: max_results must be greater than 0."
 
-    tavily = TavilySearch(max_results=max_results)
+    tavily_kwargs = {
+        "max_results": max_results,
+        "search_depth": search_depth,
+    }
+    if include_domains:
+        tavily_kwargs["include_domains"] = include_domains
+
+    tavily = TavilySearch(**tavily_kwargs)
     response = tavily.invoke({"query": query})
 
     if isinstance(response, dict):

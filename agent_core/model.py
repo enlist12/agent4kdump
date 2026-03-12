@@ -21,7 +21,7 @@ langfuse = Langfuse(
   host=os.environ['LANGFUSE_HOST']
 )
 
-model_name = os.environ.get("MODEL_NAME", "gpt-4o")
+model_name = os.environ.get("MODEL_NAME", "gpt-5-chat-latest")
 provider_name = os.environ.get("MODEL_PROVIDER", "openai")
 key = os.environ.get("API_KEY", None)
 url = os.environ.get("LLM_BASE_URL", None)
