@@ -14,6 +14,7 @@ from agent_core.tools.gdbTools import set_kdump_analysis_instance
 from agent_core.tools.fileTools import set_linux_path
 from contextlib import contextmanager
 from agents.search_agent import runSearchAgent,parse_search_results, KnownBugAnalysisResult
+from agents.analyze_agent import runAnalyzeAgent, parse_analyze_results, RootCauseAnalysisResult
 
 config_path = None
 kdump_analysis = None
@@ -166,3 +167,31 @@ else:
 
 if not parsed_result['is_known_bug']:
     main_log.info("No known bug found, proceeding with root cause analysis...")
+
+    with catch_error("Running analyze agent"):
+        analyze_result = runAnalyzeAgent()
+
+    if analyze_result is None:
+        main_log.error("Failed to get output from analyze agent")
+        sys.exit(1)
+
+    if isinstance(analyze_result, RootCauseAnalysisResult):
+        parsed_analyze = parse_analyze_results(analyze_result)
+
+        main_log.info("Root cause analysis completed")
+        console.print("\n[bold green]Root Cause Analysis Result[/bold green]")
+        console.print(f"[cyan]Root Cause:[/cyan] {parsed_analyze['root_cause']}")
+        console.print(f"[cyan]Trigger Path:[/cyan] {parsed_analyze['trigger_path']}")
+        console.print(f"[cyan]Fix Suggestion:[/cyan] {parsed_analyze['fix_suggestion']}")
+        console.print(f"[cyan]Confidence:[/cyan] {parsed_analyze['confidence']}")
+
+        if parsed_analyze['uncertainty']:
+            console.print(f"[yellow]Uncertainty:[/yellow] {parsed_analyze['uncertainty']}")
+
+        if parsed_analyze['evidence']:
+            console.print("[cyan]Evidence:[/cyan]")
+            for idx, item in enumerate(parsed_analyze['evidence'], start=1):
+                console.print(f"  {idx}. {item}")
+    else:
+        main_log.error("Unexpected result type from analyze agent")
+        sys.exit(1)
