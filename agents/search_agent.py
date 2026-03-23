@@ -11,27 +11,15 @@ from agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from agent_core.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
 
+from .schemas import KnownBugAnalysisResult,SearchReviewResult
+
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
 
 ANALYSIS_MESSAGE = """
 Start analysis. Determine if this crash is a known bug (CVE/Syzbot).
 """
 
-class KnownBugAnalysisResult(BaseModel):
-    """The final result determining if the crash is a known bug."""
-    is_known_bug: bool = Field(description="True if the crash matches a known CVE or Syzbot bug, False otherwise. BINARY decision only - no ambiguity.")
-    evidence: str = Field(description="The evidence supporting the conclusion. MUST include 4-checkpoint verification (Call Trace, Symptom Match, Patch Verification, Falsification) if is_known_bug=True")
-    matched_url: Optional[List[str]] = Field(default=None, description="The matched CVE URLs or Syzbot URLs or other relevant URLs if is_known_bug is True")
-    extra_info: Optional[str] = Field(default=None, description="Any additional information or context")
-    verification_details: Optional[str] = Field(default=None, description="Your explicit self-check answers from Phase 4 (REQUIRED if is_known_bug=True)")
 
-
-class SearchReviewResult(BaseModel):
-    """Reviewer agent result for semantic cross-check."""
-    agree_with_initial: bool = Field(description="Whether reviewer agrees with initial known/unknown decision")
-    final_is_known_bug: bool = Field(description="Reviewer's final binary decision")
-    review_reason: str = Field(description="Why reviewer agrees/disagrees")
-    missing_checks: Optional[List[str]] = Field(default=None, description="Missing checks reviewer found")
 
 @tool
 def submit_known_bug_analysis(

@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from agent_core.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
+from .schemas import RootCauseAnalysisResult,TaintAnalysisObj
+
 
 ANALYZE_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
 
@@ -19,65 +21,6 @@ ANALYSIS_MESSAGE = """
 Start root cause analysis for this unknown crash.
 The bug is already classified as NOT known by search_agent.
 """
-
-
-class TaintAnalysisObj(BaseModel):
-    """One taint-tracing hop, migrated from the external kdump workflow style."""
-
-    file_name: str = Field(description="File containing the traced object definition/assignment")
-    variable_name: str = Field(description="Variable or state object name")
-    line: int = Field(description="1-based source line of the traced object")
-    column: Optional[int] = Field(default=None, description="1-based column if known")
-    current_function: str = Field(description="Function where this object is identified")
-    explain: str = Field(description="Why this object is relevant and how it propagates")
-    end: bool = Field(description="Whether taint tracing should stop")
-
-    def get_prompt(self) -> str:
-        col = f":{self.column}" if self.column else ""
-        return (
-            f"object={self.variable_name}, "
-            f"location={self.file_name}:{self.line}{col}, "
-            f"function={self.current_function}, "
-            f"explain={self.explain}, "
-            f"end={self.end}"
-        )
-
-
-class RootCauseAnalysisResult(BaseModel):
-    """Final structured output consumed by main.py."""
-
-    root_cause: str = Field(
-        description="Primary root cause conclusion, including fault type and invalid object/state"
-    )
-    trigger_path: str = Field(
-        description="Ordered execution path (3-6 steps) that leads to the crash"
-    )
-    evidence: List[str] = Field(
-        description="Concrete evidence from crash trace and source behavior"
-    )
-    fix_suggestion: str = Field(
-        description="Minimal actionable fix direction with target function/file scope"
-    )
-    confidence: Literal["low", "medium", "high"] = Field(
-        description="Confidence in the root cause conclusion"
-    )
-    uncertainty: Optional[str] = Field(
-        default=None,
-        description="Known uncertainty, alternative hypothesis, or missing data"
-    )
-
-
-def parse_analyze_results(results: RootCauseAnalysisResult):
-    """Parse structured analyze-agent output for main workflow."""
-    return {
-        "root_cause": results.root_cause,
-        "trigger_path": results.trigger_path,
-        "evidence": results.evidence,
-        "fix_suggestion": results.fix_suggestion,
-        "confidence": results.confidence,
-        "uncertainty": results.uncertainty,
-    }
-
 
 def verify_analysis_quality(result: RootCauseAnalysisResult) -> tuple[bool, str]:
     """Final quality gate for root-cause report."""

@@ -13,7 +13,7 @@ from agent_core.tools.codeQuery.codequery import create_cq_db, set_proj_path
 from agent_core.tools.gdbTools import set_kdump_analysis_instance
 from agent_core.tools.fileTools import set_linux_path
 from contextlib import contextmanager
-from agents.search_agent import runSearchAgent,parse_search_results, KnownBugAnalysisResult
+from agents.search_agent import ANALYSIS_MESSAGE, runSearchAgent,parse_search_results, KnownBugAnalysisResult
 from agents.analyze_agent import runAnalyzeAgent, parse_analyze_results, RootCauseAnalysisResult
 
 config_path = None
@@ -176,7 +176,7 @@ if not parsed_result['is_known_bug']:
         sys.exit(1)
 
     if isinstance(analyze_result, RootCauseAnalysisResult):
-        parsed_analyze = parse_analyze_results(analyze_result)
+        parsed_analyze = analyze_result.model_dump()
 
         main_log.info("Root cause analysis completed")
         console.print("\n[bold green]Root Cause Analysis Result[/bold green]")
