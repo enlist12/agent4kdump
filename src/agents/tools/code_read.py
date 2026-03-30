@@ -3,7 +3,6 @@ from langchain.tools import tool
 
 @tool
 def read_file(filename: str) -> str:
-    """Read the full content of a file."""
     try:
         with open(filename, "r", encoding="utf-8") as f:
             return f.read()
@@ -13,7 +12,6 @@ def read_file(filename: str) -> str:
 
 @tool
 def read_file_by_linenum(filename: str, line: int, num_lines: int = 10) -> str:
-    """Read lines from a file starting at a 1-indexed line number."""
     if line < 1:
         return f"Invalid line number: {line}"
     if num_lines < 1:

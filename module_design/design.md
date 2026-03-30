@@ -99,7 +99,7 @@ read_file(filename)
 上面那个仅仅用于给下面那个兜底
 read_file_by_linenum(filename:str,line:int,range=10)
 get_source_code(func_name|func_address,code_number)
-get_source_code 通过codequery来接入
+get_source_code 通过codequery来接入  # 这里写个TODO即可。
 
 
 然后通过这三个工具来完成Linux代码的查询来从头进行静态分析。

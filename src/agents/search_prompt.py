@@ -114,5 +114,3 @@ If you need more information or tools, just tell me what you need and why.
 COT_PROMPT = """
 Please think through the problem step-by-step before answering. Show your reasoning and analysis in detail.
 """
-
-TEST_PROMPT = SEARCH_PROMPT + ENHANCE_PROMPT

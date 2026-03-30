@@ -1,11 +1,10 @@
-from typing import Optional, List, Literal
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
 class TaintAnalysisObj(BaseModel):
-    file_name: str = Field(
-        description="File containing the traced object assignment"
-    )
+    file_name: str = Field(description="File containing the traced object assignment")
     variable_name: str = Field(description="Variable or state object name")
     line: int = Field(description="1-based source line of the traced object")
     column: Optional[int] = Field(default=None, description="1-based column if known")
@@ -19,13 +18,21 @@ class TaintAnalysisObj(BaseModel):
 
     def get_prompt(self) -> str:
         col = f":{self.column}" if self.column else ""
-        return f"""
-        object={self.variable_name}, 
-        location={self.file_name}:{self.line}{col}, 
-        function={self.current_function}, 
-        explain={self.explain}, 
-        end={self.end}
-        """
+        return (
+            f"object={self.variable_name}, "
+            f"location={self.file_name}:{self.line}{col}, "
+            f"function={self.current_function}, "
+            f"explain={self.explain}, "
+            f"end={self.end}"
+        )
+
+    def same_target(self, other: "TaintAnalysisObj") -> bool:
+        return (
+            self.file_name == other.file_name
+            and self.line == other.line
+            and self.variable_name == other.variable_name
+            and self.current_function == other.current_function
+        )
 
 
 class RootCauseAnalysisResult(BaseModel):
@@ -34,6 +41,19 @@ class RootCauseAnalysisResult(BaseModel):
     )
     trigger_path: str = Field(
         description="Ordered execution path (3-6 steps) that leads to the crash"
+    )
+    evidence: List[str] = Field(
+        description="Concrete observations grounding the crash trace and source-level reasoning"
+    )
+    fix_suggestion: str = Field(
+        description="Minimal actionable fix direction tied to the vulnerable logic"
+    )
+    confidence: Literal["low", "medium", "high"] = Field(
+        description="Confidence level for the root-cause conclusion"
+    )
+    uncertainty: Optional[str] = Field(
+        default=None,
+        description="Any unresolved ambiguity, missing evidence, or quality warning",
     )
 
 

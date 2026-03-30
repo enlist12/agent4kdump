@@ -1,6 +1,6 @@
 import build
 
-from agents.search_prompt import TEST_PROMPT, COT_PROMPT
+from agents.search_prompt import COT_PROMPT, ENHANCE_PROMPT, SEARCH_PROMPT
 from agent_core.model import get_model,MAX_RECURSION_DEPTH
 from langchain.agents import create_agent
 from langchain_core.tools import tool
@@ -144,7 +144,7 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
 def create_search_reviewer_agent():
     """Create a reviewer agent to cross-check initial search decision semantically."""
     llm = get_model()
-    reviewer_prompt = TEST_PROMPT + """
+    reviewer_prompt = SEARCH_PROMPT + ENHANCE_PROMPT + """
 
 You are a SECOND-PASS reviewer.
 Your job is NOT to do fresh exhaustive search, but to verify whether the initial decision
@@ -176,7 +176,7 @@ def create_search_agent():
         model=llm,
         tools=tools,
         middleware=build_shell_middleware(),
-        system_prompt=TEST_PROMPT,
+        system_prompt=SEARCH_PROMPT + ENHANCE_PROMPT,
         response_format=KnownBugAnalysisResult,
     )
     
