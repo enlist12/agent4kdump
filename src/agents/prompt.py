@@ -154,16 +154,6 @@ Follow this workflow strictly:
 """
 ).substitute()
 
-INITIAL_RETRY_PROMPT = Template(
-    """$analysis_message
-
-Retry attempt $attempt.
-Previous issue: $retry_reason
-
-Keep the next answer source-grounded, structured, and concrete.
-"""
-)
-
 CRASH_REPORT_PROMPT = Template(
     """The kernel crash report is below.
 Use it as the primary runtime grounding for this analysis.
@@ -239,15 +229,6 @@ $cot_prompt
 """
 )
 
-RETRY_PROMPT = Template(
-    """Retry $attempt/$max_retries.
-Previous issue: $reason
-Return one valid structured response with concrete required fields.
-
-$cot_prompt
-"""
-)
-
 __all__ = [
     "COT_PROMPT",
     "ROLE_DEFINE",
@@ -256,11 +237,9 @@ __all__ = [
     "TAINT_ANALYSIS_WORKFLOW",
     "ROOT_CAUSE_ANALYSIS_WORKFLOW",
     "ANALYSIS_MESSAGE",
-    "INITIAL_RETRY_PROMPT",
     "CRASH_REPORT_PROMPT",
     "OBJECT_ANALYSIS_INPUT_PROMPT",
     "TAINT_HISTORY_PROMPT",
     "ROOT_CAUSE_INPUT_PROMPT",
     "AGENT_INPUT_PROMPT",
-    "RETRY_PROMPT",
 ]
