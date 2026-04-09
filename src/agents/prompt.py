@@ -154,6 +154,15 @@ Follow this workflow strictly:
 """
 ).substitute()
 
+RAG_CONTEXT_PROMPT = Template(
+    """Additional RAG context is provided below.
+Treat it as auxiliary hints, not ground truth.
+You must still verify conclusions from crash report + source evidence.
+
+$rag_context
+"""
+)
+
 CRASH_REPORT_PROMPT = Template(
     """The kernel crash report is below.
 Use it as the primary runtime grounding for this analysis.
@@ -237,6 +246,7 @@ __all__ = [
     "TAINT_ANALYSIS_WORKFLOW",
     "ROOT_CAUSE_ANALYSIS_WORKFLOW",
     "ANALYSIS_MESSAGE",
+    "RAG_CONTEXT_PROMPT",
     "CRASH_REPORT_PROMPT",
     "OBJECT_ANALYSIS_INPUT_PROMPT",
     "TAINT_HISTORY_PROMPT",

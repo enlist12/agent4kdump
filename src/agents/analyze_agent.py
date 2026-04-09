@@ -1,5 +1,6 @@
 from .analysis_process import AnalysisProcess
 from .schemas import RootCauseAnalysisResult
+from typing import Optional
 
 
 def parse_analyze_results(result: RootCauseAnalysisResult) -> dict:
@@ -7,7 +8,12 @@ def parse_analyze_results(result: RootCauseAnalysisResult) -> dict:
     return result.model_dump()
 
 
-def runAnalyzeAgent(max_retries: int = 2, max_taint_steps: int = 6):
+def runAnalyzeAgent(
+    max_retries: int = 2,
+    max_taint_steps: int = 6,
+    rag_context: Optional[str] = None,
+    return_trace: bool = False,
+):
     """
     Run the source-style stateful analysis workflow.
 
@@ -18,5 +24,9 @@ def runAnalyzeAgent(max_retries: int = 2, max_taint_steps: int = 6):
     process = AnalysisProcess(
         max_retries=max_retries,
         max_taint_steps=max_taint_steps,
+        rag_context=rag_context,
     )
-    return process.run()
+    result = process.run()
+    if return_trace:
+        return result, process.get_last_analysis_trace()
+    return result

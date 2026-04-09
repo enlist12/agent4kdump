@@ -1,5 +1,5 @@
 import re
-from typing import Annotated, Any, Literal, Optional, TypedDict
+from typing import Annotated, Any, Dict, Literal, Optional, TypedDict
 
 from langchain.agents import create_agent
 from langchain.messages import AnyMessage, HumanMessage
@@ -22,6 +22,7 @@ from .prompt import (
     ROLE_DEFINE,
     ROOT_CAUSE_ANALYSIS_WORKFLOW,
     ROOT_CAUSE_INPUT_PROMPT,
+    RAG_CONTEXT_PROMPT,
     TAINT_ANALYSIS_EXPLAIN,
     TAINT_ANALYSIS_WORKFLOW,
     TAINT_HISTORY_PROMPT,
@@ -44,11 +45,19 @@ class State(TypedDict):
 
 
 class AnalysisProcess:
-    def __init__(self, max_retries: int = 2, max_taint_steps: int = 6) -> None:
+    def __init__(
+        self,
+        max_retries: int = 2,
+        max_taint_steps: int = 6,
+        rag_context: Optional[str] = None,
+    ) -> None:
         self.max_retries = max_retries
         self.max_taint_steps = max_taint_steps
+        self.rag_context = rag_context
         self.callback = CallbackHandler()
         self._final_result: Optional[RootCauseAnalysisResult] = None
+        self._last_crash_report: str = ""
+        self._last_trace: Dict[str, Any] = {}
         self._build_agents()
         self._build_graph()
 
@@ -89,26 +98,35 @@ class AnalysisProcess:
 
     def run(self) -> Optional[RootCauseAnalysisResult]:
         self._final_result = None
-        self._graph.invoke(
+        final_state = self._graph.invoke(
             {
                 "messages": [],
                 "taint_object": [],
                 "last_node": "",
             }
         )
+        if isinstance(final_state, dict):
+            self._last_trace = self._build_trace(final_state)
         return self._final_result
+
+    def get_last_analysis_trace(self) -> Dict[str, Any]:
+        return dict(self._last_trace)
 
     def _node_start_debug(self, state: State) -> Command[Literal["object_analysis"]]:
         crash_report = self._get_crash_report()
+        self._last_crash_report = crash_report
+        initial_messages = [
+            HumanMessage(content=ANALYSIS_MESSAGE),
+            HumanMessage(content=CRASH_REPORT_PROMPT.substitute(crash_report=crash_report)),
+        ]
+        if self.rag_context and self.rag_context.strip():
+            initial_messages.append(
+                HumanMessage(content=RAG_CONTEXT_PROMPT.substitute(rag_context=self.rag_context.strip()))
+            )
         return Command(
             goto="object_analysis",
             update={
-                "messages": [
-                    HumanMessage(content=ANALYSIS_MESSAGE),
-                    HumanMessage(
-                        content=CRASH_REPORT_PROMPT.substitute(crash_report=crash_report)
-                    ),
-                ],
+                "messages": initial_messages,
                 "last_node": "start_debug",
             },
         )
@@ -351,3 +369,33 @@ class AnalysisProcess:
         match = re.search(r"\b" + re.escape(obj.variable_name) + r"\b", line)
         if match:
             obj.column = len(line[: match.start()].encode("utf-16-le")) // 2 + 1
+
+    def _build_trace(self, final_state: Dict[str, Any]) -> Dict[str, Any]:
+        messages = final_state.get("messages", []) if isinstance(final_state, dict) else []
+        taint_objects = final_state.get("taint_object", []) if isinstance(final_state, dict) else []
+        tool_calls: list[Dict[str, Any]] = []
+
+        for msg in messages:
+            msg_tool_calls = getattr(msg, "tool_calls", None)
+            if not msg_tool_calls:
+                continue
+            for call in msg_tool_calls:
+                if isinstance(call, dict):
+                    tool_calls.append(
+                        {
+                            "name": call.get("name", ""),
+                            "args": call.get("args", {}),
+                        }
+                    )
+
+        taint_chain = []
+        for item in taint_objects:
+            if isinstance(item, TaintAnalysisObj):
+                taint_chain.append(item.model_dump())
+
+        return {
+            "crash_report": self._last_crash_report,
+            "taint_chain": taint_chain,
+            "tool_calls": tool_calls,
+            "last_node": final_state.get("last_node", "") if isinstance(final_state, dict) else "",
+        }

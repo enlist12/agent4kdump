@@ -3,18 +3,18 @@ import yaml
 from pathlib import Path
 import sys
 from log import *
-from agent_core.embedding import EmbeddingModel
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm
 from kdump_analyze.kdump import KdumpAnalysis
 import os
 from agent_core.tools.codeQuery.codequery import create_cq_db, set_proj_path
-from agent_core.tools.gdbTools import set_kdump_analysis_instance
+from agent_core.tools.gdbTools import getCrashReport, set_kdump_analysis_instance
 from agent_core.tools.fileTools import set_linux_path
 from contextlib import contextmanager
-from agents.search_agent import ANALYSIS_MESSAGE, runSearchAgent,parse_search_results, KnownBugAnalysisResult
-from agents.analyze_agent import runAnalyzeAgent, parse_analyze_results, RootCauseAnalysisResult
+from agents.search_agent import runSearchAgent, parse_search_results, KnownBugAnalysisResult
+from agents.analyze_agent import runAnalyzeAgent, RootCauseAnalysisResult
+from agents.rag import AnalysisRAGManager
 
 config_path = None
 kdump_analysis = None
@@ -82,25 +82,11 @@ if not Confirm.ask("\nProceed with this configuration?", default=True):
 
 # initialize rag
 if enable_rag:
-    if not syzbot_data:
-        #console.print("[red]Error: RAG is enabled but syzbot_data path is not provided.[/red]")
-        main_log.error("RAG enabled but syzbot_data path missing")
-        sys.exit(1)
-    
     try:
-        main_log.info("Initializing RAG retrieval system...")
-        #console.print("[cyan]Initializing RAG retrieval system...[/cyan]")
-        rag_retriever = EmbeddingModel(data_dir=syzbot_data)
-        
-        if not hasattr(rag_retriever, 'client') or rag_retriever.client is None:
-            raise ValueError("Failed to initialize OpenAI client, please check your API key")
-        
-        #console.print("[cyan]Building RAG index...[/cyan]")
-        rag_retriever.build_index()
-        #console.print("[green]✓ RAG system initialized successfully[/green]")
+        main_log.info("Initializing analysis RAG system...")
+        rag_retriever = AnalysisRAGManager(base_dir="./cache/rag", use_pageindex=True)
         main_log.info("RAG system initialized successfully")
     except Exception as e:
-        #console.print(f"[red]Error initializing RAG system: {e}[/red]")
         main_log.error(f"Failed to initialize RAG system: {e}")
         if Confirm.ask("\nContinue without RAG?", default=False):
             enable_rag = False
@@ -167,9 +153,29 @@ else:
 
 if not parsed_result['is_known_bug']:
     main_log.info("No known bug found, proceeding with root cause analysis...")
+    rag_context_text = None
+    rag_payload = None
+    crash_report_text = ""
+
+    if enable_rag and rag_retriever:
+        with catch_error("Building RAG context"):
+            crash_report_raw = getCrashReport.invoke({})
+            crash_report_text = crash_report_raw if isinstance(crash_report_raw, str) else str(crash_report_raw)
+            rag_payload = rag_retriever.build_pre_analysis_context(crash_report_text, top_k=3)
+            rag_context_text = rag_payload.get("context")
+            main_log.info("Built pre-analysis RAG context")
 
     with catch_error("Running analyze agent"):
-        analyze_result = runAnalyzeAgent()
+        analyze_output = runAnalyzeAgent(
+            rag_context=rag_context_text,
+            return_trace=bool(enable_rag and rag_retriever),
+        )
+
+    analyze_trace = {}
+    if isinstance(analyze_output, tuple):
+        analyze_result, analyze_trace = analyze_output
+    else:
+        analyze_result = analyze_output
 
     if analyze_result is None:
         main_log.error("Failed to get output from analyze agent")
@@ -192,6 +198,19 @@ if not parsed_result['is_known_bug']:
             console.print("[cyan]Evidence:[/cyan]")
             for idx, item in enumerate(parsed_analyze['evidence'], start=1):
                 console.print(f"  {idx}. {item}")
+
+        if enable_rag and rag_retriever:
+            with catch_error("Persisting successful analysis experience"):
+                if not crash_report_text:
+                    crash_report_raw = getCrashReport.invoke({})
+                    crash_report_text = crash_report_raw if isinstance(crash_report_raw, str) else str(crash_report_raw)
+                case_id = rag_retriever.persist_success_case(
+                    crash_report=crash_report_text,
+                    analysis_result=parsed_analyze,
+                    trace=analyze_trace,
+                    retrieved_context=rag_payload,
+                )
+                main_log.info(f"Stored analysis experience as {case_id}")
     else:
         main_log.error("Unexpected result type from analyze agent")
         sys.exit(1)
