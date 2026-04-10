@@ -110,6 +110,7 @@ class AnalysisProcess:
         return self._final_result
 
     def get_last_analysis_trace(self) -> Dict[str, Any]:
+        """Return lightweight trace artifacts from the latest analysis run."""
         return dict(self._last_trace)
 
     def _node_start_debug(self, state: State) -> Command[Literal["object_analysis"]]:
@@ -371,6 +372,7 @@ class AnalysisProcess:
             obj.column = len(line[: match.start()].encode("utf-16-le")) // 2 + 1
 
     def _build_trace(self, final_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Collect taint-chain and tool-call metadata for experience persistence."""
         messages = final_state.get("messages", []) if isinstance(final_state, dict) else []
         taint_objects = final_state.get("taint_object", []) if isinstance(final_state, dict) else []
         tool_calls: list[Dict[str, Any]] = []

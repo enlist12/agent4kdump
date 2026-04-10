@@ -20,6 +20,8 @@ def runAnalyzeAgent(
     Args:
         max_retries: Retries for structured-step failures and final quality gate.
         max_taint_steps: Upper bound of reverse-taint hops before forced finalization.
+        rag_context: Optional RAG briefing injected before analysis begins.
+        return_trace: Whether to return internal analysis trace for experience persistence.
     """
     process = AnalysisProcess(
         max_retries=max_retries,

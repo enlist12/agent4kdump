@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,10 +17,7 @@ from agent_core.tools.commandTools import build_shell_middleware
 from agent_core.tools.WebSearch import fetch_webpage_content, web_search
 from log import get_logger
 
-try:
-    from pageindex import PageIndexClient
-except Exception:  # pragma: no cover - optional dependency in runtime env
-    PageIndexClient = None
+from pageindex import PageIndexClient
 
 
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_./:-]+")
@@ -54,6 +52,26 @@ class RAGSummaryResult(BaseModel):
     )
 
 
+class CrashProfileExtractionResult(BaseModel):
+    kernel_version: Optional[str] = Field(default=None)
+    bug_type: Optional[str] = Field(default=None)
+    functions: List[str] = Field(default_factory=list)
+    modules: List[str] = Field(default_factory=list)
+    driver_candidates: List[str] = Field(default_factory=list)
+
+
+class ExperienceLessonsResult(BaseModel):
+    reusable_lessons: List[str] = Field(
+        description="Reusable root-cause analysis lessons distilled from this solved case."
+    )
+    trigger_pattern: str = Field(
+        description="A compact generalized trigger pattern abstracted from this case."
+    )
+    tool_strategy: str = Field(
+        description="A short strategy summary of which tools were useful and why."
+    )
+
+
 class AnalysisRAGManager:
     """Build pre-analysis RAG context and persist successful analysis experience."""
 
@@ -63,6 +81,7 @@ class AnalysisRAGManager:
         use_pageindex: bool = True,
         pageindex_doc_ids: Optional[List[str]] = None,
     ) -> None:
+        """Initialize RAG manager with storage paths, PageIndex client, and helper agents."""
         self.logger = get_logger("analysis_rag")
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -79,8 +98,11 @@ class AnalysisRAGManager:
         self.pageindex_model = os.environ.get("PAGEINDEX_MODEL", "PI-Retrieve")
         self.pageindex_client = self._init_pageindex_client()
         self.summary_agent = self._create_summary_agent()
+        self.profile_agent = self._create_profile_agent()
+        self.lessons_agent = self._create_lessons_agent()
 
     def build_pre_analysis_context(self, crash_report: str, top_k: int = 3) -> Dict[str, Any]:
+        """Build retrieval context before analyze-agent runs."""
         profile = self._extract_profile(crash_report)
         query = self._build_query(profile, crash_report)
 
@@ -108,6 +130,7 @@ class AnalysisRAGManager:
         trace: Optional[Dict[str, Any]] = None,
         retrieved_context: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Persist one solved case as compact, reusable experience."""
         profile = self._extract_profile(crash_report)
         root_cause = str(analysis_result.get("root_cause", "")).strip()
         trigger_path = str(analysis_result.get("trigger_path", "")).strip()
@@ -118,6 +141,12 @@ class AnalysisRAGManager:
 
         summary = self._shorten(" ".join([root_cause, trigger_path, fix_suggestion]), limit=280)
         keywords = profile.get("keywords", [])
+        trace_summary = self._summarize_trace(trace or {})
+        lessons = self._distill_experience_lessons(
+            profile=profile,
+            analysis_result=analysis_result,
+            trace_summary=trace_summary,
+        )
 
         retrieval_text = "\n".join(
             [
@@ -129,6 +158,10 @@ class AnalysisRAGManager:
                 f"TriggerPath: {trigger_path}",
                 f"FixSuggestion: {fix_suggestion}",
                 f"Uncertainty: {uncertainty}",
+                f"TriggerPattern: {lessons.get('trigger_pattern', '')}",
+                f"ToolStrategy: {lessons.get('tool_strategy', '')}",
+                "ReusableLessons:",
+                *[f"- {item}" for item in lessons.get("reusable_lessons", [])],
                 "Evidence:",
                 *[f"- {item}" for item in evidence],
             ]
@@ -147,7 +180,7 @@ class AnalysisRAGManager:
             confidence=confidence,
             keywords=keywords,
             retrieval_text=retrieval_text,
-            trace=trace or {},
+            trace=trace_summary,
         )
 
         storage_obj = {
@@ -159,7 +192,8 @@ class AnalysisRAGManager:
             "confidence": record.confidence,
             "keywords": record.keywords,
             "retrieval_text": record.retrieval_text,
-            "trace": record.trace,
+            "trace_summary": record.trace,
+            "lessons": lessons,
             "profile": profile,
             "analysis_result": analysis_result,
             "retrieved_context": retrieved_context or {},
@@ -176,6 +210,7 @@ class AnalysisRAGManager:
         return case_id
 
     def _retrieve_experiences(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """Retrieve historical experiences, preferring PageIndex when configured."""
         if self.use_pageindex and self.pageindex_api_key and self.pageindex_doc_ids:
             hits = self._retrieve_from_pageindex(query=query, top_k=top_k)
             if hits:
@@ -184,6 +219,7 @@ class AnalysisRAGManager:
         return self._retrieve_from_local_store(query=query, top_k=top_k)
 
     def _retrieve_from_local_store(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """Fallback lexical retrieval from local jsonl experience store."""
         records = self._load_records()
         if not records:
             return []
@@ -225,6 +261,7 @@ class AnalysisRAGManager:
         return scored[:top_k]
 
     def _retrieve_from_pageindex(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """Retrieve relevant experience snippets through PageIndex Python SDK."""
         if self.pageindex_client is None:
             return []
 
@@ -270,6 +307,7 @@ class AnalysisRAGManager:
         ]
 
     def _collect_linux_background(self, profile: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Collect Linux module/subsystem technical context from high-quality domains."""
         if "TAVILY_API_KEY" not in os.environ:
             return []
 
@@ -320,6 +358,7 @@ class AnalysisRAGManager:
         experience_hits: List[Dict[str, Any]],
         linux_background: List[Dict[str, str]],
     ) -> str:
+        """Summarize retrieved evidence into compact context for analyze agent."""
         experience_text = "\n".join(
             [
                 f"[{idx + 1}] source={item.get('source')} score={item.get('score', 0):.3f}\n"
@@ -401,10 +440,8 @@ Output format:
         )
 
     def _init_pageindex_client(self) -> Any:
+        """Create the PageIndex SDK client used for vectorless retrieval."""
         if not self.use_pageindex:
-            return None
-        if PageIndexClient is None:
-            self.logger.warning("PageIndex SDK is not installed. Falling back to local store retrieval.")
             return None
         if not self.pageindex_api_key:
             return None
@@ -417,6 +454,7 @@ Output format:
 
     @staticmethod
     def _extract_pageindex_content(response: Any) -> str:
+        """Normalize PageIndex SDK response to plain text content."""
         if response is None:
             return ""
 
@@ -438,6 +476,7 @@ Output format:
 
     @staticmethod
     def _create_summary_agent() -> Any:
+        """Create a dedicated agent that transforms retrieval outputs into RAG briefing."""
         system_prompt = """
 You are a Linux-kernel RAG summary agent.
 Goal: transform retrieved historical cases and Linux background into concise guidance for root-cause analysis.
@@ -457,24 +496,106 @@ Rules:
             response_format=RAGSummaryResult,
         )
 
-    def _extract_profile(self, crash_report: str) -> Dict[str, Any]:
-        lower = crash_report.lower()
-        kernel_version = self._extract_kernel_version(crash_report)
-        bug_type = self._extract_bug_type(lower)
-        functions = self._extract_functions(crash_report)
-        modules = self._extract_modules(crash_report)
+    @staticmethod
+    def _create_profile_agent() -> Any:
+        """Create an agent to robustly extract crash profile when regex heuristics are weak."""
+        system_prompt = """
+You extract crash-profile metadata from Linux kernel crash reports.
+Return best-effort fields even if report format is irregular.
+Do not invent facts; leave unknown fields empty.
+""".strip()
+        return create_agent(
+            model=get_model(),
+            tools=[],
+            middleware=build_shell_middleware(),
+            system_prompt=system_prompt,
+            response_format=CrashProfileExtractionResult,
+        )
 
-        driver_candidates = list(dict.fromkeys(modules + self._infer_driver_from_functions(functions)))
-        keywords = [item for item in [kernel_version, bug_type, *driver_candidates, *functions[:5]] if item]
+    @staticmethod
+    def _create_lessons_agent() -> Any:
+        """Create an agent to distill solved-case outputs into reusable analysis experience."""
+        system_prompt = """
+You distill one solved kernel crash case into reusable troubleshooting experience.
+Output concise lessons that transfer to similar bugs.
+Avoid repeating raw evidence lines verbatim.
+""".strip()
+        return create_agent(
+            model=get_model(),
+            tools=[],
+            middleware=build_shell_middleware(),
+            system_prompt=system_prompt,
+            response_format=ExperienceLessonsResult,
+        )
+
+    def _extract_profile(self, crash_report: str) -> Dict[str, Any]:
+        """Extract crash profile with regex-first strategy and LLM fallback for format drift."""
+        lower = crash_report.lower()
+        profile: Dict[str, Any] = {
+            "kernel_version": self._extract_kernel_version(crash_report),
+            "bug_type": self._extract_bug_type(lower),
+            "functions": self._extract_functions(crash_report)[:8],
+            "modules": self._extract_modules(crash_report)[:8],
+        }
+
+        low_signal = (
+            profile["kernel_version"] == "unknown"
+            and profile["bug_type"] == "unknown"
+            and not profile["functions"]
+            and not profile["modules"]
+        )
+        if low_signal:
+            llm_profile = self._extract_profile_with_llm(crash_report)
+            profile["kernel_version"] = llm_profile.get("kernel_version") or profile["kernel_version"]
+            profile["bug_type"] = llm_profile.get("bug_type") or profile["bug_type"]
+            profile["functions"] = llm_profile.get("functions") or profile["functions"]
+            profile["modules"] = llm_profile.get("modules") or profile["modules"]
+
+        driver_candidates = list(
+            dict.fromkeys(profile["modules"] + self._infer_driver_from_functions(profile["functions"]))
+        )
+        if not driver_candidates:
+            driver_candidates = self._extract_driver_from_source_paths(crash_report)
+
+        keywords = [
+            item
+            for item in [
+                profile["kernel_version"],
+                profile["bug_type"],
+                *driver_candidates,
+                *profile["functions"][:5],
+            ]
+            if item and item != "unknown"
+        ]
 
         return {
-            "kernel_version": kernel_version,
-            "bug_type": bug_type,
-            "functions": functions[:8],
-            "modules": modules[:8],
+            "kernel_version": profile["kernel_version"],
+            "bug_type": profile["bug_type"],
+            "functions": profile["functions"][:8],
+            "modules": profile["modules"][:8],
             "driver_candidates": driver_candidates[:6],
             "keywords": keywords,
         }
+
+    def _extract_profile_with_llm(self, crash_report: str) -> Dict[str, Any]:
+        """Fallback crash-profile extraction for non-standard crash report formats."""
+        prompt = f"""
+Extract crash profile fields from this kernel crash report.
+
+Report:
+{self._shorten(crash_report, limit=5000)}
+""".strip()
+        try:
+            response = self.profile_agent.invoke(
+                {"messages": [HumanMessage(content=prompt)]},
+                config={"recursion_limit": MAX_RECURSION_DEPTH},
+            )
+            structured = response.get("structured_response") if isinstance(response, dict) else None
+            if isinstance(structured, CrashProfileExtractionResult):
+                return structured.model_dump()
+        except Exception as exc:
+            self.logger.warning("LLM profile extraction failed: %s", exc)
+        return {}
 
     @staticmethod
     def _extract_kernel_version(text: str) -> str:
@@ -547,21 +668,36 @@ Rules:
         return " | ".join(query_parts)
 
     def _build_linux_queries(self, profile: Dict[str, Any]) -> List[str]:
-        bug_type = profile.get("bug_type", "unknown")
+        """Build module-technology-oriented queries instead of vulnerability-oriented queries."""
         kernel_version = profile.get("kernel_version", "unknown")
         drivers = profile.get("driver_candidates", [])
         functions = profile.get("functions", [])
 
         queries: List[str] = []
         if drivers:
-            queries.append(f"Linux kernel {drivers[0]} driver {bug_type} {kernel_version}")
+            queries.append(f"Linux kernel {drivers[0]} driver architecture and data path")
+            queries.append(f"docs.kernel.org {drivers[0]} driver design")
         if functions:
-            queries.append(f"Linux kernel function {functions[0]} crash analysis {bug_type}")
-        queries.append(f"Linux kernel {bug_type} debugging checklist {kernel_version}")
+            queries.append(f"Linux kernel function {functions[0]} responsibilities and call chain")
+        if kernel_version != "unknown":
+            queries.append(f"Linux kernel {kernel_version} subsystem documentation and behavior changes")
+        queries.append("Linux kernel driver debugging workflow docs.kernel.org")
 
-        return list(dict.fromkeys([q for q in queries if "unknown" not in q.lower()]))
+        return list(dict.fromkeys(queries))
+
+    @staticmethod
+    def _extract_driver_from_source_paths(text: str) -> List[str]:
+        """Extract probable driver/module names from source paths in crash report text."""
+        paths = re.findall(r"(drivers/[a-zA-Z0-9_./-]+)", text)
+        candidates: List[str] = []
+        for path in paths:
+            parts = path.split("/")
+            if len(parts) >= 3:
+                candidates.append(parts[2])
+        return list(dict.fromkeys(candidates))[:6]
 
     def _load_records(self) -> List[Dict[str, Any]]:
+        """Load persisted experience records from jsonl store."""
         if not self.experience_jsonl.exists():
             return []
 
@@ -577,6 +713,78 @@ Rules:
                     continue
         return records
 
+    def _summarize_trace(self, trace: Dict[str, Any]) -> Dict[str, Any]:
+        """Compress verbose runtime trace into concise, retrieval-friendly summaries."""
+        tool_calls = trace.get("tool_calls", []) if isinstance(trace, dict) else []
+        taint_chain = trace.get("taint_chain", []) if isinstance(trace, dict) else []
+
+        counter = Counter()
+        samples: Dict[str, str] = {}
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            name = str(call.get("name", "")).strip() or "unknown_tool"
+            counter[name] += 1
+            if name not in samples:
+                args_text = self._shorten(json.dumps(call.get("args", {}), ensure_ascii=False), limit=140)
+                samples[name] = args_text
+
+        top_tools = [
+            {"name": name, "count": count, "sample_args": samples.get(name, "")}
+            for name, count in counter.most_common(6)
+        ]
+        taint_outline = [
+            f"{idx + 1}. {item.get('current_function')}::{item.get('variable_name')} "
+            f"@ {item.get('file_name')}:{item.get('line')} end={item.get('end')}"
+            for idx, item in enumerate(taint_chain[:8])
+            if isinstance(item, dict)
+        ]
+        return {
+            "tool_usage": top_tools,
+            "tool_total_calls": sum(counter.values()),
+            "taint_outline": taint_outline,
+            "last_node": trace.get("last_node", "") if isinstance(trace, dict) else "",
+        }
+
+    def _distill_experience_lessons(
+        self,
+        profile: Dict[str, Any],
+        analysis_result: Dict[str, Any],
+        trace_summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Convert one solved case into reusable lessons instead of raw record dumping."""
+        prompt = f"""
+Summarize this solved kernel crash case into reusable experience.
+
+Profile:
+{json.dumps(profile, ensure_ascii=False, indent=2)}
+
+Analysis result:
+{json.dumps(analysis_result, ensure_ascii=False, indent=2)}
+
+Trace summary:
+{json.dumps(trace_summary, ensure_ascii=False, indent=2)}
+""".strip()
+        try:
+            response = self.lessons_agent.invoke(
+                {"messages": [HumanMessage(content=prompt)]},
+                config={"recursion_limit": MAX_RECURSION_DEPTH},
+            )
+            structured = response.get("structured_response") if isinstance(response, dict) else None
+            if isinstance(structured, ExperienceLessonsResult):
+                return structured.model_dump()
+        except Exception as exc:
+            self.logger.warning("Experience lesson distillation failed: %s", exc)
+
+        return {
+            "reusable_lessons": [
+                "Anchor root-cause claims to crash-site object + taint-chain boundaries.",
+                "Prioritize minimal fix that guards invalid state before dereference/use.",
+            ],
+            "trigger_pattern": self._shorten(str(analysis_result.get("trigger_path", "")), limit=240),
+            "tool_strategy": "Start from crash report and source line context, then narrow with call/definition queries.",
+        }
+
     @staticmethod
     def _tokenize(text: str) -> List[str]:
         return [token.lower() for token in TOKEN_RE.findall(text)]
@@ -589,28 +797,30 @@ Rules:
         return text[:limit] + " ..."
 
     def _to_markdown(self, storage_obj: Dict[str, Any]) -> str:
+        """Render one stored experience into readable markdown card."""
         analysis_result = storage_obj.get("analysis_result", {})
         profile = storage_obj.get("profile", {})
-        trace = storage_obj.get("trace", {})
+        trace = storage_obj.get("trace_summary", {})
+        lessons = storage_obj.get("lessons", {})
 
         evidence = analysis_result.get("evidence", [])
         evidence_text = "\n".join([f"- {item}" for item in evidence]) if evidence else "- none"
 
-        tool_calls = trace.get("tool_calls", [])
-        tool_lines = "\n".join([f"- {item.get('name')}: {item.get('args')}" for item in tool_calls])
+        tool_usage = trace.get("tool_usage", [])
+        tool_lines = "\n".join(
+            [
+                f"- {item.get('name')} x{item.get('count')} (sample args: {item.get('sample_args')})"
+                for item in tool_usage
+            ]
+        )
         if not tool_lines:
             tool_lines = "- none"
 
-        taint_chain = trace.get("taint_chain", [])
-        taint_lines = "\n".join(
-            [
-                f"- {idx + 1}. {item.get('file_name')}:{item.get('line')} {item.get('variable_name')} "
-                f"({item.get('current_function')}) end={item.get('end')}"
-                for idx, item in enumerate(taint_chain)
-            ]
-        )
+        taint_outline = trace.get("taint_outline", [])
+        taint_lines = "\n".join([f"- {item}" for item in taint_outline])
         if not taint_lines:
             taint_lines = "- none"
+        lessons_text = "\n".join([f"- {item}" for item in lessons.get("reusable_lessons", [])]) or "- none"
 
         return (
             f"# {storage_obj.get('case_id')}\n\n"
@@ -623,10 +833,16 @@ Rules:
             f"{analysis_result.get('root_cause', '')}\n\n"
             "## Trigger Path\n"
             f"{analysis_result.get('trigger_path', '')}\n\n"
+            "## Trigger Pattern\n"
+            f"{lessons.get('trigger_pattern', '')}\n\n"
             "## Evidence\n"
             f"{evidence_text}\n\n"
             "## Fix Suggestion\n"
             f"{analysis_result.get('fix_suggestion', '')}\n\n"
+            "## Reusable Lessons\n"
+            f"{lessons_text}\n\n"
+            "## Tool Strategy\n"
+            f"{lessons.get('tool_strategy', '')}\n\n"
             "## Taint Chain\n"
             f"{taint_lines}\n\n"
             "## Tool Calls\n"
