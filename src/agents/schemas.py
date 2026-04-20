@@ -35,6 +35,35 @@ class TaintAnalysisObj(BaseModel):
         )
 
 
+class TaintBranch(BaseModel):
+    """Describe one branch created by a conditional taint decision."""
+
+    label: Literal["true", "false", "case", "unknown"] = Field(
+        description="Branch label for the conditional path"
+    )
+    condition: str = Field(description="Conditional expression that split the path")
+    assumption: str = Field(description="Local assumption for this branch")
+    reason: str = Field(description="Why this branch must be analyzed")
+    priority: int = Field(default=0, description="Lower priority is analyzed first")
+
+
+class TaintStepResult(BaseModel):
+    """Represent one taint-analysis step result."""
+
+    kind: Literal["single", "branch", "terminal"] = Field(
+        description="Whether the step produced one hop, branches, or a terminal node"
+    )
+    next_obj: Optional[TaintAnalysisObj] = Field(
+        default=None, description="Next taint object for a normal single-hop step"
+    )
+    branches: List[TaintBranch] = Field(
+        default_factory=list, description="Conditional branches to analyze"
+    )
+    terminal_reason: Optional[str] = Field(
+        default=None, description="Why the current branch should stop"
+    )
+
+
 class RootCauseAnalysisResult(BaseModel):
     root_cause: str = Field(
         description="Primary root cause conclusion, including fault type and invalid object/state"

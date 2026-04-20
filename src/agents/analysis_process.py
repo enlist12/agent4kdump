@@ -2,7 +2,7 @@ import re
 from typing import Annotated, Any, Dict, Literal, Optional, TypedDict
 
 from langchain.agents import create_agent
-from langchain.messages import AnyMessage, HumanMessage
+from langchain_core.messages import AnyMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -15,6 +15,7 @@ from agent_core.tools.commandTools import build_shell_middleware
 from .prompt import (
     AGENT_INPUT_PROMPT,
     ANALYSIS_MESSAGE,
+    BRANCH_ASSUMPTION_PROMPT,
     COT_PROMPT,
     CRASH_REPORT_PROMPT,
     OBJECT_ANALYSIS_INPUT_PROMPT,
@@ -27,7 +28,8 @@ from .prompt import (
     TAINT_ANALYSIS_WORKFLOW,
     TAINT_HISTORY_PROMPT,
 )
-from .schemas import RootCauseAnalysisResult, TaintAnalysisObj
+from .schemas import RootCauseAnalysisResult, TaintAnalysisObj, TaintStepResult
+from .taint_tree import MessageMemory, TaintTree, TaintTreeNode
 # TODO: 删掉那些sb的静态方法和过多的prompt。
 
 
@@ -42,6 +44,7 @@ class State(TypedDict):
     messages: Annotated[AnyMessage, add_messages]
     taint_object: Annotated[list[TaintAnalysisObj], add_taint_obj]
     last_node: str
+    taint_tree_summary: str
 
 
 class AnalysisProcess:
@@ -49,10 +52,14 @@ class AnalysisProcess:
         self,
         max_retries: int = 2,
         max_taint_steps: int = 6,
+        max_tree_nodes: int = 32,
+        max_branch_depth: int = 4,
         rag_context: Optional[str] = None,
     ) -> None:
         self.max_retries = max_retries
         self.max_taint_steps = max_taint_steps
+        self.max_tree_nodes = max_tree_nodes
+        self.max_branch_depth = max_branch_depth
         self.rag_context = rag_context
         self.callback = CallbackHandler()
         self._final_result: Optional[RootCauseAnalysisResult] = None
@@ -77,7 +84,7 @@ class AnalysisProcess:
             tools=tools,
             middleware=middleware,
             system_prompt=ROLE_DEFINE + TAINT_ANALYSIS_WORKFLOW + TAINT_ANALYSIS_EXPLAIN,
-            response_format=TaintAnalysisObj,
+            response_format=TaintStepResult,
         )
         self.root_agent = create_agent(
             model=model,
@@ -103,6 +110,7 @@ class AnalysisProcess:
                 "messages": [],
                 "taint_object": [],
                 "last_node": "",
+                "taint_tree_summary": "",
             }
         )
         if isinstance(final_state, dict):
@@ -173,83 +181,315 @@ class AnalysisProcess:
                 update={"last_node": "taint_analysis"},
             )
 
-        step_count = len(history) - 1
-        if step_count >= self.max_taint_steps:
-            return Command(
-                goto="root_cause_analysis",
-                update={
-                    "messages": [
-                        self._warning_message(
-                            "taint_analysis",
-                            f"Reached max_taint_steps={self.max_taint_steps} before a terminal taint source was proven.",
-                        )
-                    ],
-                    "last_node": "taint_analysis",
-                },
-            )
-
-        history_desc = "\n".join(
-            f"Step {idx + 1}: {obj.get_prompt()}" for idx, obj in enumerate(history)
-        )
-        next_obj, delta_messages, warning = self._call_agent(
-            self.taint_agent,
+        primary_path, update_messages, tree_summary = self._run_taint_tree(
+            current,
             state["messages"],
-            TAINT_HISTORY_PROMPT.substitute(
-                step=len(history),
-                current_context=current.get_prompt(),
-                history_desc=history_desc,
-            ),
-            TaintAnalysisObj,
         )
-        update_messages = list(delta_messages)
-        if warning:
-            update_messages.append(self._warning_message("taint_analysis", warning))
-            return Command(
-                goto="root_cause_analysis",
-                update={
-                    "messages": update_messages,
-                    "last_node": "taint_analysis",
-                },
-            )
-        if next_obj is None:
-            return Command(
-                goto="root_cause_analysis",
-                update={
-                    "messages": update_messages,
-                    "last_node": "taint_analysis",
-                },
-            )
-
-        self._fixup_column(next_obj)
-        if next_obj.same_target(current):
-            next_obj.end = True
-            next_obj.explain = self._join(
-                next_obj.explain,
-                "Stop: tracing converged to the same object in consecutive steps.",
-            )
-
+        new_objects = primary_path[1:] if len(primary_path) > 1 else []
         return Command(
-            goto="root_cause_analysis" if next_obj.end else "taint_analysis",
+            goto="root_cause_analysis",
             update={
                 "messages": update_messages,
-                "taint_object": [next_obj],
+                "taint_object": new_objects,
                 "last_node": "taint_analysis",
+                "taint_tree_summary": tree_summary,
             },
         )
 
+    def _run_taint_tree(
+        self,
+        root_obj: TaintAnalysisObj,
+        messages: list[AnyMessage],
+    ) -> tuple[list[TaintAnalysisObj], list[AnyMessage], str]:
+        """Run DFS taint analysis with branch-specific message checkpoints."""
+        memory = MessageMemory()
+        tree = TaintTree()
+        root_checkpoint = memory.create_checkpoint(messages)
+        root = tree.create_root(root_obj, root_checkpoint)
+        stack = [root.node_id]
+        collected_messages: list[AnyMessage] = []
+        primary_path: list[TaintAnalysisObj] = []
+
+        while stack:
+            node = tree.get_node(stack.pop())
+            tree.current_node_id = node.node_id
+            node.status = "running"
+
+            if len(tree.nodes) > self.max_tree_nodes:
+                tree.mark_pruned(
+                    node.node_id,
+                    f"Reached max_tree_nodes={self.max_tree_nodes}.",
+                )
+                continue
+
+            path_objs = self._path_taint_objects(tree, node.node_id)
+            if node.taint_obj is None:
+                tree.mark_failed(node.node_id, "Missing taint object.")
+                continue
+
+            if node.taint_obj.end:
+                tree.mark_done(node.node_id)
+                if not primary_path:
+                    primary_path = path_objs
+                continue
+
+            if len(path_objs) - 1 >= self.max_taint_steps:
+                self._add_tree_warning(
+                    memory,
+                    node,
+                    collected_messages,
+                    f"Reached max_taint_steps={self.max_taint_steps}.",
+                )
+                tree.mark_done(node.node_id)
+                if not primary_path:
+                    primary_path = path_objs
+                continue
+
+            step_result, delta_messages, warning = self._analyze_taint_node(
+                tree,
+                memory,
+                node,
+            )
+            collected_messages.extend(delta_messages)
+            node.checkpoint_id = memory.append(node.checkpoint_id, delta_messages)
+
+            if warning:
+                warning_msg = self._warning_message("taint_analysis", warning)
+                collected_messages.append(warning_msg)
+                node.checkpoint_id = memory.append(node.checkpoint_id, [warning_msg])
+
+            if step_result is None:
+                self._add_tree_warning(
+                    memory,
+                    node,
+                    collected_messages,
+                    "Taint agent did not return a structured step result.",
+                )
+                tree.mark_failed(node.node_id, "Missing structured taint step.")
+                if not primary_path:
+                    primary_path = path_objs
+                continue
+
+            if step_result.kind == "terminal":
+                if step_result.terminal_reason:
+                    node.taint_obj.end = True
+                    node.taint_obj.explain = self._join(
+                        node.taint_obj.explain,
+                        f"Stop: {step_result.terminal_reason}",
+                    )
+                tree.mark_done(node.node_id)
+                if not primary_path:
+                    primary_path = path_objs
+                continue
+
+            if step_result.kind == "single":
+                child = self._create_single_child(tree, memory, node, step_result)
+                if child is None:
+                    self._add_tree_warning(
+                        memory,
+                        node,
+                        collected_messages,
+                        "Single-step result did not include next_obj.",
+                    )
+                    tree.mark_failed(node.node_id, "Missing next_obj.")
+                    if not primary_path:
+                        primary_path = path_objs
+                    continue
+                tree.mark_done(node.node_id)
+                stack.append(child.node_id)
+                continue
+
+            children = self._create_branch_children(
+                tree,
+                memory,
+                node,
+                step_result,
+                collected_messages,
+            )
+            if not children:
+                self._add_tree_warning(
+                    memory,
+                    node,
+                    collected_messages,
+                    "Branch-step result did not include analyzable branches.",
+                )
+                tree.mark_failed(node.node_id, "Missing branch children.")
+                if not primary_path:
+                    primary_path = path_objs
+                continue
+
+            tree.mark_done(node.node_id)
+            for child in reversed(children):
+                stack.append(child.node_id)
+
+        if not primary_path:
+            primary_path = tree.primary_path() or [root_obj]
+        return primary_path, collected_messages, tree.describe()
+
+    def _analyze_taint_node(
+        self,
+        tree: TaintTree,
+        memory: MessageMemory,
+        node: TaintTreeNode,
+    ) -> tuple[Optional[TaintStepResult], list[AnyMessage], str]:
+        """Analyze one taint-tree node with the taint agent."""
+        messages = memory.restore(node.checkpoint_id)
+        current = node.taint_obj
+        if current is None:
+            return None, [], "Missing taint object"
+        prompt = TAINT_HISTORY_PROMPT.substitute(
+            step=len(self._path_taint_objects(tree, node.node_id)),
+            current_context=current.get_prompt(),
+            history_desc=self._format_tree_history(tree, node.node_id),
+        )
+        if node.branch:
+            prompt = self._branch_prompt(node) + "\n\n" + prompt
+        return self._call_agent(
+            self.taint_agent,
+            messages,
+            prompt,
+            TaintStepResult,
+        )
+
+    def _create_single_child(
+        self,
+        tree: TaintTree,
+        memory: MessageMemory,
+        node: TaintTreeNode,
+        step_result: TaintStepResult,
+    ) -> Optional[TaintTreeNode]:
+        """Create one child node for a normal taint step."""
+        next_obj = step_result.next_obj
+        if next_obj is None:
+            return None
+        self._fixup_column(next_obj)
+        if tree.has_seen_target(node.node_id, next_obj):
+            next_obj.end = True
+            next_obj.explain = self._join(
+                next_obj.explain,
+                "Stop: tracing converged to a previously visited object.",
+            )
+        checkpoint_id = memory.summarize_if_needed(node.checkpoint_id)
+        return tree.add_child(node.node_id, next_obj, checkpoint_id)
+
+    def _create_branch_children(
+        self,
+        tree: TaintTree,
+        memory: MessageMemory,
+        node: TaintTreeNode,
+        step_result: TaintStepResult,
+        collected_messages: list[AnyMessage],
+    ) -> list[TaintTreeNode]:
+        """Create child nodes for conditional taint branches."""
+        if self._branch_depth(tree, node.node_id) >= self.max_branch_depth:
+            return []
+        capacity = max(self.max_tree_nodes - len(tree.nodes), 0)
+        branches = sorted(step_result.branches, key=lambda item: item.priority)
+        branches = branches[: min(3, capacity)]
+        children: list[TaintTreeNode] = []
+        for branch in branches:
+            checkpoint_id = memory.fork_checkpoint(
+                node.checkpoint_id,
+                checkpoint_ns=f"branch:{branch.label}",
+            )
+            branch_message = HumanMessage(content=self._branch_prompt_text(branch))
+            checkpoint_id = memory.append(checkpoint_id, [branch_message])
+            collected_messages.append(branch_message)
+            child = tree.add_child(
+                node.node_id,
+                node.taint_obj,
+                checkpoint_id,
+                branch,
+            )
+            children.append(child)
+        return children
+
+    def _add_tree_warning(
+        self,
+        memory: MessageMemory,
+        node: TaintTreeNode,
+        collected_messages: list[AnyMessage],
+        reason: str,
+    ) -> None:
+        """Append a workflow warning to one tree node."""
+        warning_msg = self._warning_message("taint_tree", reason)
+        collected_messages.append(warning_msg)
+        node.checkpoint_id = memory.append(node.checkpoint_id, [warning_msg])
+
+    def _format_tree_history(self, tree: TaintTree, node_id: str) -> str:
+        """Format the taint path and branch assumptions for prompts."""
+        lines: list[str] = []
+        step = 1
+        last_obj: Optional[TaintAnalysisObj] = None
+        for node in tree.get_path(node_id):
+            if node.branch:
+                lines.append(
+                    "Branch: "
+                    f"condition={node.branch.condition}; "
+                    f"assumption={node.branch.assumption}; "
+                    f"reason={node.branch.reason}"
+                )
+            if node.taint_obj:
+                if last_obj and node.taint_obj.same_target(last_obj):
+                    continue
+                lines.append(f"Step {step}: {node.taint_obj.get_prompt()}")
+                last_obj = node.taint_obj
+                step += 1
+        return "\n".join(lines) or "No structured taint path available."
+
+    def _path_taint_objects(
+        self,
+        tree: TaintTree,
+        node_id: str,
+    ) -> list[TaintAnalysisObj]:
+        """Return taint objects on the path to a node."""
+        objects: list[TaintAnalysisObj] = []
+        for node in tree.get_path(node_id):
+            if node.taint_obj is None:
+                continue
+            if objects and node.taint_obj.same_target(objects[-1]):
+                continue
+            objects.append(node.taint_obj)
+        return objects
+
+    def _branch_prompt(self, node: TaintTreeNode) -> str:
+        """Build the prompt text for a branch node."""
+        if node.branch is None:
+            return ""
+        return self._branch_prompt_text(node.branch)
+
+    @staticmethod
+    def _branch_prompt_text(branch) -> str:
+        """Build the prompt text for a branch assumption."""
+        return BRANCH_ASSUMPTION_PROMPT.substitute(
+            condition=branch.condition,
+            assumption=branch.assumption,
+            reason=branch.reason,
+        )
+
+    def _branch_depth(self, tree: TaintTree, node_id: str) -> int:
+        """Return the number of branch nodes on a path."""
+        return sum(1 for node in tree.get_path(node_id) if node.branch is not None)
+
     def _node_root_cause_analysis(self, state: State) -> Command[Literal["__end__"]]:
         history = state.get("taint_object", [])
+        tree_summary = state.get("taint_tree_summary", "")
         warnings = self._collect_warnings(state.get("messages", []))
+        history_text = "\n".join(
+            f"Step {idx + 1}: {obj.get_prompt()}"
+            for idx, obj in enumerate(history)
+        ) or "No structured taint chain available."
+        if tree_summary:
+            history_text = self._join(
+                history_text,
+                f"## Taint Tree Summary\n{tree_summary}",
+            ) or history_text
         root_result, delta_messages, warning = self._call_agent(
             self.root_agent,
             state["messages"],
             ROOT_CAUSE_INPUT_PROMPT.substitute(
                 crash_report=self._extract_crash_report(state.get("messages", [])),
-                history="\n".join(
-                    f"Step {idx + 1}: {obj.get_prompt()}"
-                    for idx, obj in enumerate(history)
-                )
-                or "No structured taint chain available.",
+                history=history_text,
                 warning_text="\n".join(f"- {item}" for item in warnings) or "- none",
             ),
             RootCauseAnalysisResult,
@@ -311,6 +551,21 @@ class AnalysisProcess:
         structured = result.get("structured_response") if isinstance(result, dict) else None
         if isinstance(structured, expected_type):
             return structured, delta_messages, ""
+        if expected_type is TaintStepResult and isinstance(structured, TaintAnalysisObj):
+            if structured.end:
+                return (
+                    TaintStepResult(
+                        kind="terminal",
+                        terminal_reason=structured.explain,
+                    ),
+                    delta_messages,
+                    "",
+                )
+            return (
+                TaintStepResult(kind="single", next_obj=structured),
+                delta_messages,
+                "",
+            )
         return None, delta_messages, "No structured_response returned"
 
     @staticmethod
@@ -400,4 +655,7 @@ class AnalysisProcess:
             "taint_chain": taint_chain,
             "tool_calls": tool_calls,
             "last_node": final_state.get("last_node", "") if isinstance(final_state, dict) else "",
+            "taint_tree_summary": final_state.get("taint_tree_summary", "")
+            if isinstance(final_state, dict)
+            else "",
         }

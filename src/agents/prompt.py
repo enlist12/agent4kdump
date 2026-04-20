@@ -75,32 +75,29 @@ You will be given the current taint object and the history of previously traced 
 ## Your Task
 
 Perform backward taint analysis for the current object.
-Find the ONE most relevant previous source that explains how the current object's bad state is produced.
+Find the next upstream source that explains how the current object's bad state is produced.
 
 ## Workflow
 
 1. Start from the current object's location and inspect its definition, assignments, callers, parameters, return values, fields, and relevant state transitions.
-2. Choose the single strongest upstream source supported by source evidence.
-3. The source can be another variable, a function parameter, a return value, a struct field, a global state, or an external/input boundary.
-4. If tracing should continue, return the next `TaintAnalysisObj` with `end=false`.
-5. If you have reached a terminal boundary or tracing converges to the same target, return the final object with `end=true`.
+2. If there is one strongest upstream source, return it as `kind="single"` with `next_obj`.
+3. If a conditional statement creates multiple meaningful paths, return `kind="branch"` with every branch assumption.
+4. If you have reached a terminal boundary or tracing converges, return `kind="terminal"`.
 
 ## Output
 
-Return exactly one structured `TaintAnalysisObj` with:
-- `file_name`
-- `variable_name`
-- `line`
-- `column` if known
-- `current_function`
-- `explain`
-- `end`
+Return exactly one structured `TaintStepResult`:
+- `kind`: `single`, `branch`, or `terminal`
+- `next_obj`: required only when `kind="single"`
+- `branches`: required only when `kind="branch"`
+- `terminal_reason`: required only when `kind="terminal"`
 
 ## Notes
 
-- One hop only. Never compress multiple upstream hops into one answer.
+- For `single`, one hop only. Never compress multiple upstream hops into one answer.
 - Do not repeat a previously traced object unless you are explicitly marking convergence with `end=true`.
 - If several candidates exist, choose the one with the best source grounding and explain the ambiguity briefly in `explain`.
+- For `branch`, keep each branch small: condition, assumption, reason, and priority. Lower priority is analyzed first.
 """
 ).substitute()
 
@@ -195,14 +192,27 @@ $current_context
 Current taint step: $step
 
 Now, based on the crash report, previous taint steps, and source inspection:
-1. If there is a new upstream object that should be tainted next, output it as one structured `TaintAnalysisObj`.
-2. If you believe the current best upstream source is already the earliest meaningful boundary, set `end=true`.
-3. If the best candidate is effectively the same as a previously traced object, return it once and explain that tracing converged.
+1. If there is a new upstream object that should be tainted next, output `kind="single"` with one `next_obj`.
+2. If a condition creates multiple meaningful static-analysis paths, output `kind="branch"` with branch assumptions.
+3. If this path is already at the earliest meaningful boundary, output `kind="terminal"`.
 
 Important:
 - Do not skip across multiple hops.
 - Prefer objects closer to the real origin of the bad state.
 - Keep the result concrete: file, function, line, and explanation.
+"""
+)
+
+BRANCH_ASSUMPTION_PROMPT = Template(
+    """## Current Conditional Branch
+
+Analyze only this conditional branch.
+
+Condition: $condition
+Assumption: $assumption
+Reason: $reason
+
+Do not import conclusions from sibling branches unless they are proven common source facts.
 """
 )
 
@@ -250,6 +260,7 @@ __all__ = [
     "CRASH_REPORT_PROMPT",
     "OBJECT_ANALYSIS_INPUT_PROMPT",
     "TAINT_HISTORY_PROMPT",
+    "BRANCH_ASSUMPTION_PROMPT",
     "ROOT_CAUSE_INPUT_PROMPT",
     "AGENT_INPUT_PROMPT",
 ]
