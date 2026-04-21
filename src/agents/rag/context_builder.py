@@ -61,11 +61,23 @@ class CrashProfileExtractionResult(BaseModel):
 
 
 class ExperienceLessonsResult(BaseModel):
-    reusable_lessons: List[str] = Field(
-        description="Reusable root-cause analysis lessons distilled from this solved case."
+    case_signature: str = Field(
+        description="Compact case signature describing the crash shape and subsystem."
     )
-    trigger_pattern: str = Field(
-        description="A compact generalized trigger pattern abstracted from this case."
+    reusable_playbook: List[str] = Field(
+        description="Transferable analysis steps to apply to similar crashes."
+    )
+    applicability: List[str] = Field(
+        description="Signals suggesting this experience is applicable."
+    )
+    non_applicability: List[str] = Field(
+        description="Signals suggesting this experience should not be reused directly."
+    )
+    fix_patterns: List[str] = Field(
+        description="Common fix directions or patch patterns for this crash shape."
+    )
+    evidence_boundary: str = Field(
+        description="What was proven in the current case versus what remained inferred."
     )
     tool_strategy: str = Field(
         description="A short strategy summary of which tools were useful and why."
@@ -138,6 +150,9 @@ class AnalysisRAGManager:
         confidence = str(analysis_result.get("confidence", "unknown"))
         fix_suggestion = str(analysis_result.get("fix_suggestion", "")).strip()
         uncertainty = str(analysis_result.get("uncertainty", "") or "").strip()
+        crash_site = analysis_result.get("crash_site", {}) or {}
+        root_chain = analysis_result.get("root_cause_chain", []) or []
+        verification_todo = analysis_result.get("verification_todo", []) or []
 
         summary = self._shorten(" ".join([root_cause, trigger_path, fix_suggestion]), limit=280)
         keywords = profile.get("keywords", [])
@@ -154,14 +169,32 @@ class AnalysisRAGManager:
                 f"KernelVersion: {profile.get('kernel_version', 'unknown')}",
                 f"DriverCandidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}",
                 f"Functions: {', '.join(profile.get('functions', [])) or 'none'}",
+                f"CrashSite: {crash_site.get('file', 'unknown')}:{crash_site.get('line', 'unknown')} "
+                f"{crash_site.get('function', 'unknown')} object={crash_site.get('invalid_object', 'unknown')}",
                 f"RootCause: {root_cause}",
                 f"TriggerPath: {trigger_path}",
                 f"FixSuggestion: {fix_suggestion}",
                 f"Uncertainty: {uncertainty}",
-                f"TriggerPattern: {lessons.get('trigger_pattern', '')}",
+                f"CaseSignature: {lessons.get('case_signature', '')}",
                 f"ToolStrategy: {lessons.get('tool_strategy', '')}",
-                "ReusableLessons:",
-                *[f"- {item}" for item in lessons.get("reusable_lessons", [])],
+                "RootCauseChain:",
+                *[
+                    f"- step={item.get('step')} {item.get('file')}:{item.get('line')} "
+                    f"{item.get('function')}::{item.get('object')} => {item.get('explanation')}"
+                    for item in root_chain
+                    if isinstance(item, dict)
+                ],
+                "ReusablePlaybook:",
+                *[f"- {item}" for item in lessons.get("reusable_playbook", [])],
+                "Applicability:",
+                *[f"- {item}" for item in lessons.get("applicability", [])],
+                "NonApplicability:",
+                *[f"- {item}" for item in lessons.get("non_applicability", [])],
+                "FixPatterns:",
+                *[f"- {item}" for item in lessons.get("fix_patterns", [])],
+                f"EvidenceBoundary: {lessons.get('evidence_boundary', '')}",
+                "VerificationTodo:",
+                *[f"- {item}" for item in verification_todo if isinstance(item, str) and item.strip()],
                 "Evidence:",
                 *[f"- {item}" for item in evidence],
             ]
@@ -251,6 +284,10 @@ class AnalysisRAGManager:
                     "summary": rec.get("summary", ""),
                     "root_cause": rec.get("root_cause", ""),
                     "trigger_path": rec.get("trigger_path", ""),
+                    "case_signature": rec.get("lessons", {}).get("case_signature", ""),
+                    "reusable_playbook": rec.get("lessons", {}).get("reusable_playbook", []),
+                    "applicability": rec.get("lessons", {}).get("applicability", []),
+                    "non_applicability": rec.get("lessons", {}).get("non_applicability", []),
                     "confidence": rec.get("confidence", "unknown"),
                     "score": score + keyword_boost,
                     "source": "local_store",
@@ -300,6 +337,10 @@ class AnalysisRAGManager:
                 "summary": self._shorten(content, limit=1200),
                 "root_cause": "",
                 "trigger_path": "",
+                "case_signature": "",
+                "reusable_playbook": [],
+                "applicability": [],
+                "non_applicability": [],
                 "confidence": "reference",
                 "score": 1.0,
                 "source": "pageindex",
@@ -364,7 +405,11 @@ class AnalysisRAGManager:
                 f"[{idx + 1}] source={item.get('source')} score={item.get('score', 0):.3f}\n"
                 f"summary={item.get('summary', '')}\n"
                 f"root_cause={item.get('root_cause', '')}\n"
-                f"trigger_path={item.get('trigger_path', '')}"
+                f"trigger_path={item.get('trigger_path', '')}\n"
+                f"case_signature={item.get('case_signature', '')}\n"
+                f"playbook={'; '.join(item.get('reusable_playbook', []))}\n"
+                f"applicability={'; '.join(item.get('applicability', []))}\n"
+                f"non_applicability={'; '.join(item.get('non_applicability', []))}"
                 for idx, item in enumerate(experience_hits)
             ]
         ) or "No historical experience retrieved."
@@ -380,10 +425,11 @@ class AnalysisRAGManager:
 You are preparing RAG context for a Linux kernel crash root-cause analysis agent.
 
 Task:
-1) Summarize actionable historical experience patterns.
-2) Summarize kernel/module background linked to this crash.
-3) List concrete pitfalls/checkpoints for the next analysis.
-4) If evidence is weak, explicitly mark as low-confidence hint.
+1) Extract similar case signatures from historical experience.
+2) Distill a transferable analysis playbook for the current crash.
+3) Highlight mismatch signals and non-transferable parts to prevent overfitting.
+4) List concrete source-level checks for the next analysis.
+5) If evidence is weak, explicitly mark as low-confidence hint.
 
 Crash profile:
 {json.dumps(profile, ensure_ascii=False, indent=2)}
@@ -398,10 +444,11 @@ Linux background:
 {background_text}
 
 Output format:
-- Section 1: Historical Experience Insights
-- Section 2: Linux Module Background
-- Section 3: Analysis Checklist
-- Section 4: Confidence Notes
+- Section 1: Similar Case Signatures
+- Section 2: Transferable Analysis Playbook
+- Section 3: Non-Transferable / Mismatch Warnings
+- Section 4: Suggested Checks For This Crash
+- Section 5: Confidence Notes
 """.strip()
 
         try:
@@ -414,28 +461,32 @@ Output format:
                 checklist = "\n".join([f"- {item}" for item in structured.analysis_checklist if item.strip()])
                 checklist = checklist or "- none"
                 return (
-                    "Section 1: Historical Experience Insights\n"
+                    "Section 1: Similar Case Signatures\n"
                     f"{structured.historical_experience_insights.strip()}\n\n"
-                    "Section 2: Linux Module Background\n"
+                    "Section 2: Transferable Analysis Playbook\n"
                     f"{structured.linux_module_background.strip()}\n\n"
-                    "Section 3: Analysis Checklist\n"
+                    "Section 3: Non-Transferable / Mismatch Warnings\n"
+                    "Treat retrieved cases as workflow hints only. Do not reuse old conclusions without current-source proof.\n\n"
+                    "Section 4: Suggested Checks For This Crash\n"
                     f"{checklist}\n\n"
-                    "Section 4: Confidence Notes\n"
+                    "Section 5: Confidence Notes\n"
                     f"{structured.confidence_notes.strip()}"
                 )
         except Exception as exc:
             self.logger.warning("RAG context summarization failed: %s", exc)
 
         return (
-            "Section 1: Historical Experience Insights\n"
+            "Section 1: Similar Case Signatures\n"
             f"{experience_text}\n\n"
-            "Section 2: Linux Module Background\n"
+            "Section 2: Transferable Analysis Playbook\n"
             f"{background_text}\n\n"
-            "Section 3: Analysis Checklist\n"
+            "Section 3: Non-Transferable / Mismatch Warnings\n"
+            "- Historical experience may only guide check ordering; it is not proof.\n\n"
+            "Section 4: Suggested Checks For This Crash\n"
             "- Verify crash-site invalid object first.\n"
             "- Build one-hop taint chain with file/function/line grounding.\n"
             "- Keep fix suggestion minimal and source-grounded.\n\n"
-            "Section 4: Confidence Notes\n"
+            "Section 5: Confidence Notes\n"
             "- This context is fallback-generated because model summarization failed."
         )
 
@@ -483,9 +534,10 @@ Goal: transform retrieved historical cases and Linux background into concise gui
 
 Rules:
 1. Use retrieval as hints, never as final proof.
-2. Prioritize root-cause and trigger-path transferability.
-3. Keep checklist concrete and source-grounded.
-4. If retrieval is weak or version-mismatched, call it out explicitly.
+2. Prioritize case-signature similarity and analysis-playbook transferability.
+3. Explicitly call out mismatch signals and non-transferable details.
+4. Keep checklist concrete and source-grounded.
+5. If retrieval is weak or version-mismatched, call it out explicitly.
 """.strip()
 
         return create_agent(
@@ -517,8 +569,8 @@ Do not invent facts; leave unknown fields empty.
         """Create an agent to distill solved-case outputs into reusable analysis experience."""
         system_prompt = """
 You distill one solved kernel crash case into reusable troubleshooting experience.
-Output concise lessons that transfer to similar bugs.
-Avoid repeating raw evidence lines verbatim.
+Output a compact case signature, analysis playbook, applicability boundaries, and fix patterns.
+Avoid repeating raw evidence lines verbatim or emitting generic advice.
 """.strip()
         return create_agent(
             model=get_model(),
@@ -755,6 +807,15 @@ Report:
         """Convert one solved case into reusable lessons instead of raw record dumping."""
         prompt = f"""
 Summarize this solved kernel crash case into reusable experience.
+Focus on analysis guidance, not prose summary.
+Return:
+- case_signature
+- reusable_playbook
+- applicability
+- non_applicability
+- fix_patterns
+- evidence_boundary
+- tool_strategy
 
 Profile:
 {json.dumps(profile, ensure_ascii=False, indent=2)}
@@ -777,11 +838,25 @@ Trace summary:
             self.logger.warning("Experience lesson distillation failed: %s", exc)
 
         return {
-            "reusable_lessons": [
-                "Anchor root-cause claims to crash-site object + taint-chain boundaries.",
-                "Prioritize minimal fix that guards invalid state before dereference/use.",
+            "case_signature": self._shorten(str(analysis_result.get("trigger_path", "")), limit=240),
+            "reusable_playbook": [
+                "Anchor the first claim to the exact crash-site object and statement.",
+                "Trace one upstream hop at a time until the first credible state boundary.",
+                "Separate proven source facts from inferred propagation hypotheses.",
             ],
-            "trigger_pattern": self._shorten(str(analysis_result.get("trigger_path", "")), limit=240),
+            "applicability": [
+                "The same subsystem, invalid object shape, or source-path family appears in the new crash.",
+                "The taint chain includes a similar fetch-from-global, struct field, or lifecycle transition.",
+            ],
+            "non_applicability": [
+                "The crash function matches but the invalid object or access mode is different.",
+                "The old case depended on initialization failure while the new case points to a free or race boundary.",
+            ],
+            "fix_patterns": [
+                "Add a guard or invariant check close to the dereference/use site.",
+                "Repair the earlier initialization or lifecycle handoff if source evidence proves it.",
+            ],
+            "evidence_boundary": "Fallback lessons only; no case-specific proof beyond the stored summary.",
             "tool_strategy": "Start from crash report and source line context, then narrow with call/definition queries.",
         }
 
@@ -820,7 +895,21 @@ Trace summary:
         taint_lines = "\n".join([f"- {item}" for item in taint_outline])
         if not taint_lines:
             taint_lines = "- none"
-        lessons_text = "\n".join([f"- {item}" for item in lessons.get("reusable_lessons", [])]) or "- none"
+        playbook_text = "\n".join([f"- {item}" for item in lessons.get("reusable_playbook", [])]) or "- none"
+        applicability_text = "\n".join([f"- {item}" for item in lessons.get("applicability", [])]) or "- none"
+        non_applicability_text = "\n".join([f"- {item}" for item in lessons.get("non_applicability", [])]) or "- none"
+        fix_patterns_text = "\n".join([f"- {item}" for item in lessons.get("fix_patterns", [])]) or "- none"
+        verification_todo = analysis_result.get("verification_todo", [])
+        verification_todo_text = "\n".join([f"- {item}" for item in verification_todo]) or "- none"
+        patch_sketch = analysis_result.get("patch_sketch", "") or "none"
+        crash_site = analysis_result.get("crash_site", {}) or {}
+        crash_site_text = (
+            f"- file: {crash_site.get('file', 'unknown')}\n"
+            f"- function: {crash_site.get('function', 'unknown')}\n"
+            f"- line: {crash_site.get('line', 'unknown')}\n"
+            f"- invalid_object: {crash_site.get('invalid_object', 'unknown')}\n"
+            f"- statement: {crash_site.get('statement', 'unknown')}"
+        )
 
         return (
             f"# {storage_obj.get('case_id')}\n\n"
@@ -831,18 +920,32 @@ Trace summary:
             f"- driver_candidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}\n\n"
             "## Root Cause\n"
             f"{analysis_result.get('root_cause', '')}\n\n"
+            "## Crash Site\n"
+            f"{crash_site_text}\n\n"
             "## Trigger Path\n"
             f"{analysis_result.get('trigger_path', '')}\n\n"
-            "## Trigger Pattern\n"
-            f"{lessons.get('trigger_pattern', '')}\n\n"
+            "## Case Signature\n"
+            f"{lessons.get('case_signature', '')}\n\n"
             "## Evidence\n"
             f"{evidence_text}\n\n"
             "## Fix Suggestion\n"
             f"{analysis_result.get('fix_suggestion', '')}\n\n"
-            "## Reusable Lessons\n"
-            f"{lessons_text}\n\n"
+            "## Reusable Playbook\n"
+            f"{playbook_text}\n\n"
+            "## Applicability\n"
+            f"{applicability_text}\n\n"
+            "## Non-Applicability\n"
+            f"{non_applicability_text}\n\n"
+            "## Fix Patterns\n"
+            f"{fix_patterns_text}\n\n"
+            "## Evidence Boundary\n"
+            f"{lessons.get('evidence_boundary', '')}\n\n"
             "## Tool Strategy\n"
             f"{lessons.get('tool_strategy', '')}\n\n"
+            "## Verification TODO\n"
+            f"{verification_todo_text}\n\n"
+            "## Patch Sketch\n"
+            f"```diff\n{patch_sketch}\n```\n\n"
             "## Taint Chain\n"
             f"{taint_lines}\n\n"
             "## Tool Calls\n"

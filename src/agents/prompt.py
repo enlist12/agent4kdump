@@ -117,8 +117,10 @@ The report must stay grounded in the crash facts and the traced taint chain.
 2. Identify the earliest grounded source that explains the invalid object/state at the crash site.
 3. Summarize the trigger path in execution order.
 4. Extract concrete evidence items from crash facts and source locations.
-5. Suggest the smallest plausible fix consistent with the traced logic.
-6. If any step is not fully proven, keep confidence conservative and record it in `uncertainty`.
+5. Build a source-grounded root-cause chain with file/function/line for each important hop.
+6. Suggest the smallest plausible fix consistent with the traced logic.
+7. Provide a git-diff-style demo patch sketch when a localized fix point is plausible.
+8. If any step is not fully proven, keep confidence conservative and record it in `uncertainty`.
 
 ## Output
 
@@ -129,11 +131,21 @@ Return a structured `RootCauseAnalysisResult` with:
 - `fix_suggestion`
 - `confidence`
 - `uncertainty`
+- `crash_site`
+- `root_cause_chain`
+- `source_locations`
+- `fix_candidates`
+- `patch_sketch`
+- `verification_todo`
 
 ## Notes
 
 - Do not invent upstream facts that are not grounded in the crash report or source trace.
+- `root_cause` must mention the invalid object/state and concrete source locations.
 - At least one evidence item must contain explicit file/line grounding.
+- `crash_site` should point to the actual dereference/use/free site if possible.
+- `root_cause_chain` should stay compact but concrete; avoid vague summaries.
+- `patch_sketch` must be clearly a demo patch, not a claim that it is complete or compile-tested.
 - If the taint chain is incomplete, say so directly in `uncertainty`.
 """
 ).substitute()
@@ -155,6 +167,7 @@ RAG_CONTEXT_PROMPT = Template(
     """Additional RAG context is provided below.
 Treat it as auxiliary hints, not ground truth.
 You must still verify conclusions from crash report + source evidence.
+If you reuse an idea from historical experience, explicitly separate it from facts proven in the current source trace.
 
 $rag_context
 """
@@ -235,9 +248,15 @@ $warning_text
 1. `root_cause` must mention the fault type and invalid object/state.
 2. `trigger_path` must be ordered and concise.
 3. `evidence` must include crash-trace and source-level observations.
-4. `fix_suggestion` must be minimal and actionable.
-5. `confidence` must be `low`, `medium`, or `high`.
-6. If the chain is incomplete, `uncertainty` must explain why.
+4. `fix_suggestion` must be minimal, actionable, and mention a concrete source location.
+5. `crash_site` must include file, function, line, statement, and invalid object if known.
+6. `root_cause_chain` must give the major source-grounded propagation hops.
+7. `source_locations` must list key dereference, assignment, fetch, or guard points.
+8. `fix_candidates` must identify 1-2 plausible patch locations.
+9. `patch_sketch` must be a git-diff-style demo patch when a localized fix is plausible. Prefix the first line with `DEMO PATCH ONLY`.
+10. `verification_todo` must list unresolved checks if confidence is not high.
+11. `confidence` must be `low`, `medium`, or `high`.
+12. If the chain is incomplete, `uncertainty` must explain why.
 """
 )
 

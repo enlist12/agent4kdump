@@ -1,7 +1,13 @@
 import argparse
-import yaml  
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import yaml
+
+SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 from log import *
 from rich.console import Console
 from rich.table import Table
@@ -21,6 +27,124 @@ kdump_analysis = None
 linux_path = None
 
 main_log = get_logger("Main")
+
+
+def print_section(title: str) -> None:
+    console.print(f"\n[bold green]{title}[/bold green]")
+
+
+def print_kv(label: str, value) -> None:
+    if value is None or value == "" or value == []:
+        return
+    console.print(f"[cyan]{label}:[/cyan] {value}")
+
+
+def print_list_section(title: str, items) -> None:
+    if not items:
+        return
+    console.print(f"[cyan]{title}:[/cyan]")
+    for idx, item in enumerate(items, start=1):
+        console.print(f"  {idx}. {item}")
+
+
+def render_search_results(parsed_result: dict) -> None:
+    print_section("Known Bug Search Result")
+    print_kv("Known Bug", parsed_result.get("is_known_bug"))
+
+    fingerprint = parsed_result.get("crash_fingerprint") or {}
+    if fingerprint:
+        console.print("[cyan]Crash Fingerprint:[/cyan]")
+        for key in [
+            "panic_header",
+            "fault_type",
+            "crash_function",
+            "subsystem",
+            "source_path",
+            "access_type",
+        ]:
+            if fingerprint.get(key):
+                console.print(f"  - {key}: {fingerprint.get(key)}")
+        if fingerprint.get("top_frames"):
+            console.print(f"  - top_frames: {', '.join(fingerprint['top_frames'])}")
+        if fingerprint.get("title_candidates"):
+            console.print(f"  - title_candidates: {' | '.join(fingerprint['title_candidates'])}")
+        if fingerprint.get("keywords"):
+            console.print(f"  - keywords: {', '.join(fingerprint['keywords'])}")
+
+    queries = parsed_result.get("queries_tried") or []
+    if queries:
+        console.print("[cyan]Queries Tried:[/cyan]")
+        for idx, item in enumerate(queries, start=1):
+            domains = ", ".join(item.get("target_domains", [])) or "all"
+            console.print(
+                f"  {idx}. [{domains}] {item.get('query', '')} "
+                f"(purpose={item.get('purpose', '')}; observed={item.get('observed_result', '')})"
+            )
+
+    candidates = parsed_result.get("candidate_matches") or []
+    if candidates:
+        console.print("[cyan]Candidate Matches:[/cyan]")
+        for idx, item in enumerate(candidates, start=1):
+            console.print(
+                f"  {idx}. [{item.get('verdict')}/{item.get('relevance')}] "
+                f"{item.get('title', '')} | {item.get('url', '')} | {item.get('reason', '')}"
+            )
+
+    print_kv("Evidence", parsed_result.get("evidence"))
+    print_kv("Rejection Summary", parsed_result.get("rejection_summary"))
+    print_kv("Final Reasoning", parsed_result.get("final_reasoning"))
+    print_kv("Extra Info", parsed_result.get("extra_info"))
+
+
+def render_analyze_results(parsed_analyze: dict) -> None:
+    print_section("Root Cause Analysis Result")
+    print_kv("Root Cause", parsed_analyze.get("root_cause"))
+    print_kv("Trigger Path", parsed_analyze.get("trigger_path"))
+    print_kv("Fix Suggestion", parsed_analyze.get("fix_suggestion"))
+    print_kv("Confidence", parsed_analyze.get("confidence"))
+
+    crash_site = parsed_analyze.get("crash_site") or {}
+    if crash_site:
+        console.print("[cyan]Crash Site:[/cyan]")
+        for key in ["file", "function", "line", "invalid_object", "statement"]:
+            if crash_site.get(key) is not None and crash_site.get(key) != "":
+                console.print(f"  - {key}: {crash_site.get(key)}")
+
+    root_cause_chain = parsed_analyze.get("root_cause_chain") or []
+    if root_cause_chain:
+        console.print("[cyan]Root Cause Chain:[/cyan]")
+        for item in root_cause_chain:
+            console.print(
+                f"  {item.get('step')}. {item.get('file')}:{item.get('line')} "
+                f"{item.get('function')}::{item.get('object')} -> {item.get('explanation')}"
+            )
+
+    source_locations = parsed_analyze.get("source_locations") or []
+    if source_locations:
+        console.print("[cyan]Source Locations:[/cyan]")
+        for idx, item in enumerate(source_locations, start=1):
+            console.print(
+                f"  {idx}. [{item.get('label')}] {item.get('file')}:{item.get('line')} "
+                f"{item.get('function')} | {item.get('detail')}"
+            )
+
+    fix_candidates = parsed_analyze.get("fix_candidates") or []
+    if fix_candidates:
+        console.print("[cyan]Fix Candidates:[/cyan]")
+        for idx, item in enumerate(fix_candidates, start=1):
+            console.print(
+                f"  {idx}. {item.get('file')}:{item.get('line')} "
+                f"{item.get('function')} | {item.get('rationale')}"
+            )
+
+    patch_sketch = parsed_analyze.get("patch_sketch")
+    if patch_sketch:
+        console.print("[cyan]Patch Sketch:[/cyan]")
+        console.print(f"[white]{patch_sketch}[/white]")
+
+    print_list_section("Evidence", parsed_analyze.get("evidence"))
+    print_list_section("Verification TODO", parsed_analyze.get("verification_todo"))
+    print_kv("Uncertainty", parsed_analyze.get("uncertainty"))
 
 @contextmanager
 def catch_error(desc):
@@ -141,11 +265,7 @@ if isinstance(result, KnownBugAnalysisResult):
         main_log.info(f"Known bug found: {parsed_result['matched_url']}")
     else:
         main_log.info("No known bug found")
-        
-    console.print(f"[blue]Evidence: {parsed_result['evidence']}[/blue]")
-    
-    if parsed_result['extra_info']:
-        console.print(f"[red]Extra Info: {parsed_result['extra_info']}[/red]")
+    render_search_results(parsed_result)
     
 else:
     main_log.error("Unexpected result type from search agent")
@@ -185,19 +305,7 @@ if not parsed_result['is_known_bug']:
         parsed_analyze = analyze_result.model_dump()
 
         main_log.info("Root cause analysis completed")
-        console.print("\n[bold green]Root Cause Analysis Result[/bold green]")
-        console.print(f"[cyan]Root Cause:[/cyan] {parsed_analyze['root_cause']}")
-        console.print(f"[cyan]Trigger Path:[/cyan] {parsed_analyze['trigger_path']}")
-        console.print(f"[cyan]Fix Suggestion:[/cyan] {parsed_analyze['fix_suggestion']}")
-        console.print(f"[cyan]Confidence:[/cyan] {parsed_analyze['confidence']}")
-
-        if parsed_analyze['uncertainty']:
-            console.print(f"[yellow]Uncertainty:[/yellow] {parsed_analyze['uncertainty']}")
-
-        if parsed_analyze['evidence']:
-            console.print("[cyan]Evidence:[/cyan]")
-            for idx, item in enumerate(parsed_analyze['evidence'], start=1):
-                console.print(f"  {idx}. {item}")
+        render_analyze_results(parsed_analyze)
 
         if enable_rag and rag_retriever:
             with catch_error("Persisting successful analysis experience"):

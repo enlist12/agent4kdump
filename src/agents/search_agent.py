@@ -50,13 +50,7 @@ def submit_known_bug_analysis(
     
 def parse_search_results(results: KnownBugAnalysisResult):
     """Parse the search results and return a structured response."""
-    return {
-        "is_known_bug": results.is_known_bug,
-        "evidence": results.evidence,
-        "matched_url": results.matched_url,
-        "extra_info": results.extra_info,
-        "verification_details": results.verification_details
-    }
+    return results.model_dump()
 
 
 def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
@@ -64,6 +58,39 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
     Verify if the result meets quality standards.
     Returns: (is_valid, reason)
     """
+    fingerprint = result.crash_fingerprint
+    if fingerprint is None:
+        return False, "Missing crash_fingerprint"
+
+    if not fingerprint.crash_function or not fingerprint.fault_type:
+        return False, "crash_fingerprint must include at least crash_function and fault_type"
+
+    if not fingerprint.title_candidates:
+        return False, "crash_fingerprint must include title_candidates for syzbot matching"
+
+    if len(result.queries_tried) < 8:
+        return False, "Need at least 8 recorded queries in queries_tried"
+
+    syzbot_queries = [
+        item for item in result.queries_tried
+        if any(domain in {"syzbot.org", "syzkaller.appspot.com"} for domain in item.target_domains)
+    ]
+    if len(syzbot_queries) < 3:
+        return False, "Need at least 3 recorded syzbot/syzkaller queries"
+
+    patch_queries = [
+        item for item in result.queries_tried
+        if any(domain in {"lore.kernel.org", "git.kernel.org"} for domain in item.target_domains)
+    ]
+    if len(patch_queries) < 2:
+        return False, "Need at least 2 recorded patch/commit queries"
+
+    if not any("title" in item.purpose.lower() for item in result.queries_tried):
+        return False, "Query plan must include at least one title-oriented query"
+
+    if not result.candidate_matches:
+        return False, "Need candidate_matches to show accepted or rejected near-matches"
+
     # If claiming it's a known bug, must meet strict requirements
     if result.is_known_bug:
         if not result.matched_url or len(result.matched_url) == 0:
@@ -89,7 +116,7 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
         if not result.verification_details or len(result.verification_details) < 100:
             return False, "Verification details missing or too brief (need Phase 4 self-check answers)"
         
-        # Check if evidence contains checkpoint scores
+        # Check if evidence contains checkpoint summaries
         if "Call Trace" not in result.evidence or "Symptom" not in result.evidence:
             return False, "Evidence must include 4-checkpoint verification (Call Trace, Symptom, Patch, Falsification)"
         
@@ -113,6 +140,13 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
         
         if not has_source_check:
             return False, "Must explicitly verify that source code is NOT patched (compare patch with current source)"
+
+        matched_candidates = [item for item in result.candidate_matches if item.verdict == "match"]
+        if not matched_candidates:
+            return False, "Known-bug conclusion must include at least one matched candidate"
+
+        if not result.final_reasoning or len(result.final_reasoning) < 40:
+            return False, "Known-bug conclusion must include final_reasoning"
     else:
         # If claiming no match, must show sufficient search effort
         evidence_lower = result.evidence.lower()
@@ -137,6 +171,13 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
         has_syzbot_domain = ("syzbot.org" in evidence_lower) or ("syzkaller.appspot.com" in evidence_lower)
         if not has_syzbot_domain:
             return False, "No direct syzbot/syzkaller domain query evidence found"
+
+        rejected_candidates = [item for item in result.candidate_matches if item.verdict == "rejected"]
+        if not rejected_candidates:
+            return False, "Unknown-bug conclusion must include rejected near-matches"
+
+        if not result.rejection_summary or len(result.rejection_summary) < 20:
+            return False, "Unknown-bug conclusion must include rejection_summary"
     
     return True, "Result meets quality standards"
 
@@ -151,10 +192,12 @@ Your job is NOT to do fresh exhaustive search, but to verify whether the initial
 is semantically justified by evidence quality.
 
 Review rules:
-1. Check if links are verifiable bug/commit/CVE entities.
-2. Check if call-trace/symptom statements are consistent with linked evidence.
-3. Check if patch-presence (patched/unpatched) verification is explicit when is_known_bug=True.
-4. Keep binary output and list missing checks if any.
+1. Check if crash_fingerprint is concrete enough to support the query plan.
+2. Check if links are verifiable bug/commit/CVE entities.
+3. Check if call-trace/symptom statements are consistent with linked evidence.
+4. Check if candidate_matches and rejection reasons support the binary decision.
+5. Check if patch-presence (patched/unpatched) verification is explicit when is_known_bug=True.
+6. Keep binary output and list missing checks if any.
 """
 
     return create_agent(
@@ -254,8 +297,13 @@ Please review the initial decision below and decide whether it is semantically j
 
 Initial decision:
 - is_known_bug: {structured_result.is_known_bug}
+- crash_fingerprint: {structured_result.crash_fingerprint}
+- queries_tried: {structured_result.queries_tried}
+- candidate_matches: {structured_result.candidate_matches}
 - matched_url: {structured_result.matched_url}
 - evidence: {structured_result.evidence}
+- rejection_summary: {structured_result.rejection_summary}
+- final_reasoning: {structured_result.final_reasoning}
 - verification_details: {structured_result.verification_details}
 """
 

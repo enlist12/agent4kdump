@@ -127,7 +127,7 @@ class KdumpAnalysis:
                 return {"result": "error", "output": ["gdb is not alive"]}
 
             self.logger.info("execute gdb command: %s", command)
-            output = self.gdb.write(command, timeout_sec=5)
+            output = self.gdb.write(command, timeout_sec=10)
             return self.parseOutput(output)
         except Exception as exc:
             self.logger.error("Failed to execute gdb command: %s, error: %s", command, exc)
@@ -236,7 +236,7 @@ class KdumpAnalysis:
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=8,
+                timeout=20,
             )
             if not proc.stdout:
                 return None
