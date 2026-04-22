@@ -9,9 +9,8 @@ from abc import ABC, abstractmethod
 from langfuse.langchain import CallbackHandler
 from abc import ABC
 from langfuse import Langfuse
-import os
 from langchain.chat_models import init_chat_model
-from dotenv import load_dotenv,find_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv())
 
@@ -33,4 +32,3 @@ def get_model() -> Any:
     return init_chat_model(
         model=model_name, model_provider=provider_name, api_key=key, base_url=url
     )
-
