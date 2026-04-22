@@ -225,6 +225,7 @@ class SearchCandidateMatch(BaseModel):
 
 class KnownBugAnalysisResult(BaseModel):
     is_known_bug: bool = Field(
+        default=False,
         description="True if the crash matches a known CVE or Syzbot bug, False otherwise. BINARY decision only - no ambiguity."
     )
     evidence: str = Field(

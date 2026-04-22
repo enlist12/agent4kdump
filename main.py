@@ -1,8 +1,12 @@
 import argparse
+import hashlib
+import json
+import os
 import sys
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv, find_dotenv
 
 SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(SRC_DIR) not in sys.path:
@@ -13,7 +17,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm
 from kdump_analyze.kdump import KdumpAnalysis
-import os
 from agent_core.tools.codeQuery.codequery import create_cq_db, set_proj_path
 from agent_core.tools.gdbTools import getCrashReport, set_kdump_analysis_instance
 from agent_core.tools.fileTools import set_linux_path
@@ -22,11 +25,17 @@ from agents.search_agent import runSearchAgent, parse_search_results, KnownBugAn
 from agents.analyze_agent import runAnalyzeAgent, RootCauseAnalysisResult
 from agents.rag import AnalysisRAGManager
 
+try:
+    from pageindex.page_index_md import md_to_tree as _pageindex_md_to_tree
+except Exception:
+    _pageindex_md_to_tree = None
+
 config_path = None
 kdump_analysis = None
 linux_path = None
 
 main_log = get_logger("Main")
+load_dotenv(find_dotenv())
 
 
 def print_section(title: str) -> None:
@@ -45,6 +54,58 @@ def print_list_section(title: str, items) -> None:
     console.print(f"[cyan]{title}:[/cyan]")
     for idx, item in enumerate(items, start=1):
         console.print(f"  {idx}. {item}")
+
+
+def render_pageindex_status(status: dict) -> None:
+    print_section("PageIndex Status")
+    print_kv("Enabled", "Yes" if status.get("enabled") else "No")
+    print_kv("Markdown Backend Ready", "Yes" if status.get("markdown_backend_ready") else "No")
+    print_kv("History Tree Ready", "Yes" if status.get("tree_cache_ready") else "No")
+    print_kv("History Tree Stale", "Yes" if status.get("tree_cache_stale") else "No")
+    print_kv("Last Sync Status", status.get("last_sync_status"))
+    print_kv("Fallback Reason", status.get("fallback_reason"))
+
+
+def get_pageindex_config_status(base_dir: str = "./cache/rag") -> dict:
+    cache_dir = Path(base_dir)
+    corpus_path = cache_dir / "history_corpus.md"
+    tree_path = cache_dir / "pageindex_tree.json"
+    state_path = cache_dir / "pageindex_state.json"
+    markdown_backend_ready = _pageindex_md_to_tree is not None
+
+    state = {}
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            state = {}
+
+    current_corpus_hash = ""
+    if corpus_path.exists():
+        try:
+            current_corpus_hash = hashlib.sha256(corpus_path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+        except OSError:
+            current_corpus_hash = ""
+
+    stored_hash = str(state.get("corpus_hash", ""))
+    has_history = corpus_path.exists() and bool(current_corpus_hash)
+    tree_cache_stale = bool(has_history and (not tree_path.exists() or stored_hash != current_corpus_hash))
+    tree_cache_ready = bool(has_history and tree_path.exists() and not tree_cache_stale)
+
+    fallback_reason = ""
+    if has_history and state.get("last_error") and not tree_cache_ready:
+        fallback_reason = state.get("last_error")
+    elif has_history and not tree_cache_ready:
+        fallback_reason = "History tree is not ready; falling back to local experience retrieval."
+
+    return {
+        "enabled": True,
+        "markdown_backend_ready": markdown_backend_ready,
+        "tree_cache_ready": tree_cache_ready,
+        "tree_cache_stale": tree_cache_stale,
+        "last_sync_status": state.get("last_sync_status", ""),
+        "fallback_reason": fallback_reason,
+    }
 
 
 def render_search_results(parsed_result: dict) -> None:
@@ -177,6 +238,7 @@ vmcore = config.get('vmcore', './vmcore')
 kdump_server = config.get('kdump_server', './kdump_server')
 syzbot_data = config.get('syzbot_data', './syzbot_data')
 enable_rag = config.get('enable_rag', False)
+pageindex_status = get_pageindex_config_status() if enable_rag else None
 linux_path = os.path.abspath(linux)
 vmcore = os.path.abspath(vmcore)
 kdump_server = os.path.abspath(kdump_server)
@@ -197,6 +259,9 @@ table.add_row("VMCore", vmcore)
 table.add_row("Kdump Server", kdump_server)
 table.add_row("Syzbot Data", syzbot_data)
 table.add_row("RAG Enabled", "Yes" if enable_rag else "No")
+if enable_rag and pageindex_status is not None:
+    table.add_row("PageIndex Enabled", "Yes" if pageindex_status["enabled"] else "No")
+    table.add_row("Markdown Backend Ready", "Yes" if pageindex_status["markdown_backend_ready"] else "No")
 
 console.print(table)
 
@@ -208,7 +273,11 @@ if not Confirm.ask("\nProceed with this configuration?", default=True):
 if enable_rag:
     try:
         main_log.info("Initializing analysis RAG system...")
-        rag_retriever = AnalysisRAGManager(base_dir="./cache/rag", use_pageindex=True)
+        rag_retriever = AnalysisRAGManager(
+            base_dir=os.path.abspath("./cache/rag"),
+            use_pageindex=True,
+        )
+        render_pageindex_status(rag_retriever.get_pageindex_runtime_status())
         main_log.info("RAG system initialized successfully")
     except Exception as e:
         main_log.error(f"Failed to initialize RAG system: {e}")

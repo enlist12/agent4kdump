@@ -1,40 +1,26 @@
-import hashlib
 import json
-import os
 import re
 from collections import Counter
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dotenv import find_dotenv, load_dotenv
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 from agent_core.model import MAX_RECURSION_DEPTH, get_model
 from agent_core.tools.commandTools import build_shell_middleware
-from agent_core.tools.WebSearch import fetch_webpage_content, web_search
 from log import get_logger
 
-from pageindex import PageIndexClient
+from .experience_store import ExperienceStore
+from .linux_background import LinuxBackgroundCollector
+from .pageindex_tree import PageIndexTreeRetriever
 
 
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_./:-]+")
-URL_RE = re.compile(r"https?://[^\s)]+")
 
-
-@dataclass
-class ExperienceRecord:
-    case_id: str
-    created_at: str
-    summary: str
-    root_cause: str
-    trigger_path: str
-    confidence: str
-    keywords: List[str]
-    retrieval_text: str
-    trace: Dict[str, Any]
+load_dotenv(find_dotenv())
 
 
 class RAGSummaryResult(BaseModel):
@@ -87,39 +73,38 @@ class ExperienceLessonsResult(BaseModel):
 class AnalysisRAGManager:
     """Build pre-analysis RAG context and persist successful analysis experience."""
 
-    def __init__(
-        self,
-        base_dir: str = "./cache/rag",
-        use_pageindex: bool = True,
-        pageindex_doc_ids: Optional[List[str]] = None,
-    ) -> None:
-        """Initialize RAG manager with storage paths, PageIndex client, and helper agents."""
+    def __init__(self, base_dir: str = "./cache/rag", use_pageindex: bool = True) -> None:
         self.logger = get_logger("analysis_rag")
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-        self.experience_jsonl = self.base_dir / "experience_store.jsonl"
-        self.experience_docs_dir = self.base_dir / "experience_docs"
-        self.experience_docs_dir.mkdir(parents=True, exist_ok=True)
+        self.experience_store = ExperienceStore(base_dir=self.base_dir, logger=self.logger)
+        self.pageindex_tree = PageIndexTreeRetriever(
+            base_dir=self.base_dir,
+            logger=self.logger,
+            enabled=use_pageindex,
+        )
+        self.linux_background = LinuxBackgroundCollector(logger=self.logger)
 
-        self.use_pageindex = use_pageindex
-        self.pageindex_api_key = os.environ.get("PAGEINDEX_API_KEY")
-        raw_doc_ids = os.environ.get("PAGEINDEX_DOC_IDS", "")
-        env_doc_ids = [item.strip() for item in raw_doc_ids.split(",") if item.strip()]
-        self.pageindex_doc_ids = pageindex_doc_ids if pageindex_doc_ids is not None else env_doc_ids
-        self.pageindex_model = os.environ.get("PAGEINDEX_MODEL", "PI-Retrieve")
-        self.pageindex_client = self._init_pageindex_client()
         self.summary_agent = self._create_summary_agent()
         self.profile_agent = self._create_profile_agent()
         self.lessons_agent = self._create_lessons_agent()
+
+        self.corpus_info = self.experience_store.build_history_corpus()
+        self.pageindex_tree.mark_corpus_state(self.corpus_info)
+        self.pageindex_tree.sync_history_tree(self.corpus_info)
+        self._log_pageindex_status()
 
     def build_pre_analysis_context(self, crash_report: str, top_k: int = 3) -> Dict[str, Any]:
         """Build retrieval context before analyze-agent runs."""
         profile = self._extract_profile(crash_report)
         query = self._build_query(profile, crash_report)
 
+        self.corpus_info = self.experience_store.build_history_corpus()
+        self.pageindex_tree.mark_corpus_state(self.corpus_info)
+
         experience_hits = self._retrieve_experiences(query=query, top_k=top_k)
-        linux_background = self._collect_linux_background(profile)
+        linux_background = self.linux_background.collect(profile)
         final_context = self._summarize_context(
             crash_report=crash_report,
             profile=profile,
@@ -200,60 +185,77 @@ class AnalysisRAGManager:
             ]
         )
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        case_hash = hashlib.md5((now_iso + retrieval_text).encode("utf-8")).hexdigest()[:12]
-        case_id = f"case_{case_hash}"
-
-        record = ExperienceRecord(
-            case_id=case_id,
-            created_at=now_iso,
+        case_id = self.experience_store.persist_case(
             summary=summary,
             root_cause=root_cause,
             trigger_path=trigger_path,
             confidence=confidence,
             keywords=keywords,
             retrieval_text=retrieval_text,
-            trace=trace_summary,
+            trace_summary=trace_summary,
+            lessons=lessons,
+            profile=profile,
+            analysis_result=analysis_result,
+            retrieved_context=retrieved_context or {},
         )
 
-        storage_obj = {
-            "case_id": record.case_id,
-            "created_at": record.created_at,
-            "summary": record.summary,
-            "root_cause": record.root_cause,
-            "trigger_path": record.trigger_path,
-            "confidence": record.confidence,
-            "keywords": record.keywords,
-            "retrieval_text": record.retrieval_text,
-            "trace_summary": record.trace,
-            "lessons": lessons,
-            "profile": profile,
-            "analysis_result": analysis_result,
-            "retrieved_context": retrieved_context or {},
-        }
-
-        with self.experience_jsonl.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(storage_obj, ensure_ascii=False) + "\n")
-
-        md_path = self.experience_docs_dir / f"{case_id}.md"
-        md_content = self._to_markdown(storage_obj)
-        md_path.write_text(md_content, encoding="utf-8")
-
-        self.logger.info("Persisted successful analysis case: %s", case_id)
+        self.corpus_info = self.experience_store.build_history_corpus()
+        self.pageindex_tree.mark_corpus_state(self.corpus_info)
         return case_id
 
+    def get_pageindex_runtime_status(self) -> Dict[str, Any]:
+        self.corpus_info = self.experience_store.build_history_corpus()
+        self.pageindex_tree.mark_corpus_state(self.corpus_info)
+        return self.pageindex_tree.get_runtime_status(self.corpus_info)
+
     def _retrieve_experiences(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        """Retrieve historical experiences, preferring PageIndex when configured."""
-        if self.use_pageindex and self.pageindex_api_key and self.pageindex_doc_ids:
-            hits = self._retrieve_from_pageindex(query=query, top_k=top_k)
-            if hits:
-                return hits
+        """Retrieve historical experiences via tree search, then fallback to lexical retrieval."""
+        self.pageindex_tree.sync_history_tree(self.corpus_info)
+        status = self.pageindex_tree.get_runtime_status(self.corpus_info)
+
+        if status["tree_cache_ready"]:
+            tree_hits = self.pageindex_tree.retrieve_from_tree(query=query, top_k=top_k)
+            tree_hits = self._merge_tree_hits_with_records(tree_hits)
+            if tree_hits:
+                return tree_hits
+            self.logger.info("PageIndex tree search returned no hits, falling back to local experience store.")
+        else:
+            reason = status.get("fallback_reason")
+            if reason:
+                self.logger.info("PageIndex tree unavailable: %s", reason)
 
         return self._retrieve_from_local_store(query=query, top_k=top_k)
 
+    def _merge_tree_hits_with_records(self, tree_hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        records = self.experience_store.load_records()
+        if not records:
+            return tree_hits
+
+        record_map = {str(item.get("case_id", "")): item for item in records}
+        merged: List[Dict[str, Any]] = []
+        for hit in tree_hits:
+            record = record_map.get(str(hit.get("case_id", "")))
+            if not record:
+                merged.append(hit)
+                continue
+            lessons = record.get("lessons", {}) or {}
+            merged.append(
+                {
+                    **hit,
+                    "summary": record.get("summary", "") or hit.get("summary", ""),
+                    "root_cause": record.get("root_cause", ""),
+                    "trigger_path": record.get("trigger_path", ""),
+                    "case_signature": lessons.get("case_signature", ""),
+                    "reusable_playbook": lessons.get("reusable_playbook", []),
+                    "applicability": lessons.get("applicability", []),
+                    "non_applicability": lessons.get("non_applicability", []),
+                    "confidence": record.get("confidence", hit.get("confidence", "reference")),
+                }
+            )
+        return merged
+
     def _retrieve_from_local_store(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        """Fallback lexical retrieval from local jsonl experience store."""
-        records = self._load_records()
+        records = self.experience_store.load_records()
         if not records:
             return []
 
@@ -297,101 +299,6 @@ class AnalysisRAGManager:
         scored.sort(key=lambda item: item["score"], reverse=True)
         return scored[:top_k]
 
-    def _retrieve_from_pageindex(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        """Retrieve relevant experience snippets through PageIndex Python SDK."""
-        if self.pageindex_client is None:
-            return []
-
-        try:
-            response = self.pageindex_client.chat_completions(
-                model=self.pageindex_model,
-                doc_id=self.pageindex_doc_ids,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Return concise, case-level kernel crash experiences useful for root-cause analysis.",
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Find up to {top_k} relevant historical experiences for this query.\n"
-                            "Prioritize root-cause and trigger-path similarity.\n"
-                            f"Query:\n{query}"
-                        ),
-                    },
-                ],
-                stream=False,
-            )
-        except Exception as exc:
-            self.logger.warning("PageIndex SDK retrieval exception: %s", exc)
-            return []
-
-        content = self._extract_pageindex_content(response)
-
-        if not content:
-            return []
-
-        return [
-            {
-                "case_id": "pageindex",
-                "summary": self._shorten(content, limit=1200),
-                "root_cause": "",
-                "trigger_path": "",
-                "case_signature": "",
-                "reusable_playbook": [],
-                "applicability": [],
-                "non_applicability": [],
-                "confidence": "reference",
-                "score": 1.0,
-                "source": "pageindex",
-            }
-        ]
-
-    def _collect_linux_background(self, profile: Dict[str, Any]) -> List[Dict[str, str]]:
-        """Collect Linux module/subsystem technical context from high-quality domains."""
-        if "TAVILY_API_KEY" not in os.environ:
-            return []
-
-        queries = self._build_linux_queries(profile)
-        if not queries:
-            return []
-
-        backgrounds: List[Dict[str, str]] = []
-        for query in queries[:2]:
-            try:
-                result_text = web_search.func(
-                    query=query,
-                    max_results=3,
-                    search_depth="advanced",
-                    include_domains=["docs.kernel.org", "lore.kernel.org", "kernel.org", "syzkaller.appspot.com"],
-                )
-            except Exception as exc:
-                self.logger.warning("web_search failed: %s", exc)
-                continue
-
-            if not isinstance(result_text, str) or result_text.startswith("Error:"):
-                continue
-
-            urls = URL_RE.findall(result_text)
-            for url in urls[:2]:
-                try:
-                    page = fetch_webpage_content.func(url=url, max_length=2200)
-                except Exception:
-                    continue
-                if not isinstance(page, str) or page.startswith("Error:"):
-                    continue
-                backgrounds.append(
-                    {
-                        "query": query,
-                        "url": url,
-                        "content": self._shorten(page, limit=1600),
-                    }
-                )
-                if len(backgrounds) >= 3:
-                    return backgrounds
-
-        return backgrounds
-
     def _summarize_context(
         self,
         crash_report: str,
@@ -399,17 +306,25 @@ class AnalysisRAGManager:
         experience_hits: List[Dict[str, Any]],
         linux_background: List[Dict[str, str]],
     ) -> str:
-        """Summarize retrieved evidence into compact context for analyze agent."""
         experience_text = "\n".join(
             [
-                f"[{idx + 1}] source={item.get('source')} score={item.get('score', 0):.3f}\n"
-                f"summary={item.get('summary', '')}\n"
-                f"root_cause={item.get('root_cause', '')}\n"
-                f"trigger_path={item.get('trigger_path', '')}\n"
-                f"case_signature={item.get('case_signature', '')}\n"
-                f"playbook={'; '.join(item.get('reusable_playbook', []))}\n"
-                f"applicability={'; '.join(item.get('applicability', []))}\n"
-                f"non_applicability={'; '.join(item.get('non_applicability', []))}"
+                "\n".join(
+                    [
+                        f"[{idx + 1}] source={item.get('source')} score={item.get('score', 0):.3f}",
+                        f"case_id={item.get('case_id', '')}",
+                        f"title={item.get('title', '')}",
+                        f"summary={item.get('summary', '')}",
+                        f"root_cause={item.get('root_cause', '')}",
+                        f"trigger_path={item.get('trigger_path', '')}",
+                        f"case_signature={item.get('case_signature', '')}",
+                        f"playbook={'; '.join(item.get('reusable_playbook', []))}",
+                        f"applicability={'; '.join(item.get('applicability', []))}",
+                        f"non_applicability={'; '.join(item.get('non_applicability', []))}",
+                        f"node_id={item.get('node_id', '')}",
+                        f"line_num={item.get('line_num', '')}",
+                        f"text={self._shorten(item.get('text', ''), 500)}",
+                    ]
+                )
                 for idx, item in enumerate(experience_hits)
             ]
         ) or "No historical experience retrieved."
@@ -458,8 +373,7 @@ Output format:
             )
             structured = response.get("structured_response") if isinstance(response, dict) else None
             if isinstance(structured, RAGSummaryResult):
-                checklist = "\n".join([f"- {item}" for item in structured.analysis_checklist if item.strip()])
-                checklist = checklist or "- none"
+                checklist = "\n".join([f"- {item}" for item in structured.analysis_checklist if item.strip()]) or "- none"
                 return (
                     "Section 1: Similar Case Signatures\n"
                     f"{structured.historical_experience_insights.strip()}\n\n"
@@ -490,44 +404,8 @@ Output format:
             "- This context is fallback-generated because model summarization failed."
         )
 
-    def _init_pageindex_client(self) -> Any:
-        """Create the PageIndex SDK client used for vectorless retrieval."""
-        if not self.use_pageindex:
-            return None
-        if not self.pageindex_api_key:
-            return None
-
-        try:
-            return PageIndexClient(api_key=self.pageindex_api_key)
-        except Exception as exc:
-            self.logger.warning("Failed to initialize PageIndexClient: %s", exc)
-            return None
-
-    @staticmethod
-    def _extract_pageindex_content(response: Any) -> str:
-        """Normalize PageIndex SDK response to plain text content."""
-        if response is None:
-            return ""
-
-        if isinstance(response, dict):
-            choices = response.get("choices", [])
-            if choices:
-                msg = choices[0].get("message", {})
-                return str(msg.get("content", "")).strip()
-            return str(response).strip()
-
-        choices = getattr(response, "choices", None)
-        if isinstance(choices, list) and choices:
-            first = choices[0]
-            message = getattr(first, "message", None)
-            content = getattr(message, "content", "") if message is not None else ""
-            return str(content).strip()
-
-        return str(response).strip()
-
     @staticmethod
     def _create_summary_agent() -> Any:
-        """Create a dedicated agent that transforms retrieval outputs into RAG briefing."""
         system_prompt = """
 You are a Linux-kernel RAG summary agent.
 Goal: transform retrieved historical cases and Linux background into concise guidance for root-cause analysis.
@@ -550,7 +428,6 @@ Rules:
 
     @staticmethod
     def _create_profile_agent() -> Any:
-        """Create an agent to robustly extract crash profile when regex heuristics are weak."""
         system_prompt = """
 You extract crash-profile metadata from Linux kernel crash reports.
 Return best-effort fields even if report format is irregular.
@@ -566,7 +443,6 @@ Do not invent facts; leave unknown fields empty.
 
     @staticmethod
     def _create_lessons_agent() -> Any:
-        """Create an agent to distill solved-case outputs into reusable analysis experience."""
         system_prompt = """
 You distill one solved kernel crash case into reusable troubleshooting experience.
 Output a compact case signature, analysis playbook, applicability boundaries, and fix patterns.
@@ -581,7 +457,6 @@ Avoid repeating raw evidence lines verbatim or emitting generic advice.
         )
 
     def _extract_profile(self, crash_report: str) -> Dict[str, Any]:
-        """Extract crash profile with regex-first strategy and LLM fallback for format drift."""
         lower = crash_report.lower()
         profile: Dict[str, Any] = {
             "kernel_version": self._extract_kernel_version(crash_report),
@@ -630,7 +505,6 @@ Avoid repeating raw evidence lines verbatim or emitting generic advice.
         }
 
     def _extract_profile_with_llm(self, crash_report: str) -> Dict[str, Any]:
-        """Fallback crash-profile extraction for non-standard crash report formats."""
         prompt = f"""
 Extract crash profile fields from this kernel crash report.
 
@@ -692,8 +566,7 @@ Report:
             if "Modules linked in:" in line:
                 tail = line.split("Modules linked in:", 1)[1]
                 for token in tail.split():
-                    cleaned = re.sub(r"\(.*?\)", "", token).strip()
-                    cleaned = cleaned.strip(",")
+                    cleaned = re.sub(r"\(.*?\)", "", token).strip().strip(",")
                     if cleaned and cleaned != "-":
                         modules.append(cleaned)
         return list(dict.fromkeys(modules))
@@ -719,27 +592,8 @@ Report:
         ]
         return " | ".join(query_parts)
 
-    def _build_linux_queries(self, profile: Dict[str, Any]) -> List[str]:
-        """Build module-technology-oriented queries instead of vulnerability-oriented queries."""
-        kernel_version = profile.get("kernel_version", "unknown")
-        drivers = profile.get("driver_candidates", [])
-        functions = profile.get("functions", [])
-
-        queries: List[str] = []
-        if drivers:
-            queries.append(f"Linux kernel {drivers[0]} driver architecture and data path")
-            queries.append(f"docs.kernel.org {drivers[0]} driver design")
-        if functions:
-            queries.append(f"Linux kernel function {functions[0]} responsibilities and call chain")
-        if kernel_version != "unknown":
-            queries.append(f"Linux kernel {kernel_version} subsystem documentation and behavior changes")
-        queries.append("Linux kernel driver debugging workflow docs.kernel.org")
-
-        return list(dict.fromkeys(queries))
-
     @staticmethod
     def _extract_driver_from_source_paths(text: str) -> List[str]:
-        """Extract probable driver/module names from source paths in crash report text."""
         paths = re.findall(r"(drivers/[a-zA-Z0-9_./-]+)", text)
         candidates: List[str] = []
         for path in paths:
@@ -748,25 +602,7 @@ Report:
                 candidates.append(parts[2])
         return list(dict.fromkeys(candidates))[:6]
 
-    def _load_records(self) -> List[Dict[str, Any]]:
-        """Load persisted experience records from jsonl store."""
-        if not self.experience_jsonl.exists():
-            return []
-
-        records: List[Dict[str, Any]] = []
-        with self.experience_jsonl.open("r", encoding="utf-8") as fp:
-            for raw in fp:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-        return records
-
     def _summarize_trace(self, trace: Dict[str, Any]) -> Dict[str, Any]:
-        """Compress verbose runtime trace into concise, retrieval-friendly summaries."""
         tool_calls = trace.get("tool_calls", []) if isinstance(trace, dict) else []
         taint_chain = trace.get("taint_chain", []) if isinstance(trace, dict) else []
 
@@ -804,7 +640,6 @@ Report:
         analysis_result: Dict[str, Any],
         trace_summary: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Convert one solved case into reusable lessons instead of raw record dumping."""
         prompt = f"""
 Summarize this solved kernel crash case into reusable experience.
 Focus on analysis guidance, not prose summary.
@@ -866,88 +701,17 @@ Trace summary:
 
     @staticmethod
     def _shorten(text: str, limit: int) -> str:
-        text = text.strip()
+        text = str(text or "").strip()
         if len(text) <= limit:
             return text
         return text[:limit] + " ..."
 
-    def _to_markdown(self, storage_obj: Dict[str, Any]) -> str:
-        """Render one stored experience into readable markdown card."""
-        analysis_result = storage_obj.get("analysis_result", {})
-        profile = storage_obj.get("profile", {})
-        trace = storage_obj.get("trace_summary", {})
-        lessons = storage_obj.get("lessons", {})
-
-        evidence = analysis_result.get("evidence", [])
-        evidence_text = "\n".join([f"- {item}" for item in evidence]) if evidence else "- none"
-
-        tool_usage = trace.get("tool_usage", [])
-        tool_lines = "\n".join(
-            [
-                f"- {item.get('name')} x{item.get('count')} (sample args: {item.get('sample_args')})"
-                for item in tool_usage
-            ]
-        )
-        if not tool_lines:
-            tool_lines = "- none"
-
-        taint_outline = trace.get("taint_outline", [])
-        taint_lines = "\n".join([f"- {item}" for item in taint_outline])
-        if not taint_lines:
-            taint_lines = "- none"
-        playbook_text = "\n".join([f"- {item}" for item in lessons.get("reusable_playbook", [])]) or "- none"
-        applicability_text = "\n".join([f"- {item}" for item in lessons.get("applicability", [])]) or "- none"
-        non_applicability_text = "\n".join([f"- {item}" for item in lessons.get("non_applicability", [])]) or "- none"
-        fix_patterns_text = "\n".join([f"- {item}" for item in lessons.get("fix_patterns", [])]) or "- none"
-        verification_todo = analysis_result.get("verification_todo", [])
-        verification_todo_text = "\n".join([f"- {item}" for item in verification_todo]) or "- none"
-        patch_sketch = analysis_result.get("patch_sketch", "") or "none"
-        crash_site = analysis_result.get("crash_site", {}) or {}
-        crash_site_text = (
-            f"- file: {crash_site.get('file', 'unknown')}\n"
-            f"- function: {crash_site.get('function', 'unknown')}\n"
-            f"- line: {crash_site.get('line', 'unknown')}\n"
-            f"- invalid_object: {crash_site.get('invalid_object', 'unknown')}\n"
-            f"- statement: {crash_site.get('statement', 'unknown')}"
-        )
-
-        return (
-            f"# {storage_obj.get('case_id')}\n\n"
-            f"- created_at: {storage_obj.get('created_at')}\n"
-            f"- confidence: {analysis_result.get('confidence', 'unknown')}\n"
-            f"- kernel_version: {profile.get('kernel_version', 'unknown')}\n"
-            f"- bug_type: {profile.get('bug_type', 'unknown')}\n"
-            f"- driver_candidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}\n\n"
-            "## Root Cause\n"
-            f"{analysis_result.get('root_cause', '')}\n\n"
-            "## Crash Site\n"
-            f"{crash_site_text}\n\n"
-            "## Trigger Path\n"
-            f"{analysis_result.get('trigger_path', '')}\n\n"
-            "## Case Signature\n"
-            f"{lessons.get('case_signature', '')}\n\n"
-            "## Evidence\n"
-            f"{evidence_text}\n\n"
-            "## Fix Suggestion\n"
-            f"{analysis_result.get('fix_suggestion', '')}\n\n"
-            "## Reusable Playbook\n"
-            f"{playbook_text}\n\n"
-            "## Applicability\n"
-            f"{applicability_text}\n\n"
-            "## Non-Applicability\n"
-            f"{non_applicability_text}\n\n"
-            "## Fix Patterns\n"
-            f"{fix_patterns_text}\n\n"
-            "## Evidence Boundary\n"
-            f"{lessons.get('evidence_boundary', '')}\n\n"
-            "## Tool Strategy\n"
-            f"{lessons.get('tool_strategy', '')}\n\n"
-            "## Verification TODO\n"
-            f"{verification_todo_text}\n\n"
-            "## Patch Sketch\n"
-            f"```diff\n{patch_sketch}\n```\n\n"
-            "## Taint Chain\n"
-            f"{taint_lines}\n\n"
-            "## Tool Calls\n"
-            f"{tool_lines}\n"
-        )
+    def _log_pageindex_status(self) -> None:
+        status = self.get_pageindex_runtime_status()
+        if status["tree_cache_ready"]:
+            self.logger.info("PageIndex history tree ready.")
+            return
+        if status.get("last_sync_status") == "no_history":
+            self.logger.info("No historical experience stored yet; skipping history retrieval bootstrap.")
+            return
+        self.logger.warning("PageIndex history tree unavailable. %s", status.get("fallback_reason", ""))
