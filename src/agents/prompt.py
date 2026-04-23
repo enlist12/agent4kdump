@@ -151,7 +151,8 @@ Return a structured `RootCauseAnalysisResult` with:
 ).substitute()
 
 ANALYSIS_MESSAGE = Template(
-    """Next, I will provide you with a parsed crash report.
+"""
+Next, I will provide you with a parsed crash report.
 The bug is already classified as NOT known by `search_agent`.
 Based on the report, you need to debug the crash step by step and produce a source-grounded root-cause analysis.
 
@@ -160,26 +161,18 @@ Follow this workflow strictly:
 2. object_analysis
 3. taint_analysis
 4. root_cause_analysis
-"""
-).substitute()
 
-RAG_CONTEXT_PROMPT = Template(
-    """Additional RAG context is provided below.
-Treat it as auxiliary hints, not ground truth.
-You must still verify conclusions from crash report + source evidence.
-If you reuse an idea from historical experience, explicitly separate it from facts proven in the current source trace.
-
-$rag_context
-"""
-)
-
-CRASH_REPORT_PROMPT = Template(
-    """The kernel crash report is below.
+The kernel crash report is below.
 Use it as the primary runtime grounding for this analysis.
 
 $crash_report
+
+$rag_context
+
 """
 )
+
+
 
 OBJECT_ANALYSIS_INPUT_PROMPT = Template(
     """## Current Node
@@ -275,8 +268,6 @@ __all__ = [
     "TAINT_ANALYSIS_WORKFLOW",
     "ROOT_CAUSE_ANALYSIS_WORKFLOW",
     "ANALYSIS_MESSAGE",
-    "RAG_CONTEXT_PROMPT",
-    "CRASH_REPORT_PROMPT",
     "OBJECT_ANALYSIS_INPUT_PROMPT",
     "TAINT_HISTORY_PROMPT",
     "BRANCH_ASSUMPTION_PROMPT",
