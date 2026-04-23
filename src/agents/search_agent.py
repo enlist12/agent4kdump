@@ -257,6 +257,14 @@ Your previous result did not meet quality standards. Please:
 4. Make a BINARY decision: True or False. If uncertain, choose False.
 
 Previous issue: {retry_reason}
+
+You must fix the issue before returning.
+Before returning, explicitly verify:
+- queries_tried has at least 8 items
+- at least 3 target syzbot/syzkaller domains
+- at least 2 target lore/git patch sources
+- candidate_matches is non-empty
+- if is_known_bug=False, evidence includes a literal `Queries Tried` section
 """
             initial_input["messages"].append(HumanMessage(content=retry_message))
         

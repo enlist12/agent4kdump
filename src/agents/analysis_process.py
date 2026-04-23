@@ -536,13 +536,18 @@ class AnalysisProcess:
                 )
             )
         ]
-        result = agent.invoke(
-            {"messages": current},
-            config={
-                "callbacks": [self.callback],
-                "recursion_limit": MAX_RECURSION_DEPTH,
-            },
-        )
+        try:
+            result = agent.invoke(
+                {"messages": current},
+                config={
+                    "callbacks": [self.callback],
+                    "recursion_limit": MAX_RECURSION_DEPTH,
+                },
+            )
+        except Exception as exc:
+            if expected_type is TaintStepResult:
+                return None, current[len(base_messages) :], f"Agent invoke failed for TaintStepResult: {exc}"
+            raise
         result_messages = result.get("messages", current) if isinstance(result, dict) else current
         if isinstance(result_messages, list):
             delta_messages = result_messages[len(base_messages) :]

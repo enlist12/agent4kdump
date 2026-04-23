@@ -52,6 +52,8 @@ Hard constraints:
 * At least 2 queries must target patch/commit sources.
 * Record every query in `queries_tried`.
 * Record top candidates in `candidate_matches`, including rejected near-matches.
+* Do not finalize early after only a few searches, even if you already suspect `is_known_bug=False`.
+* If a search tool result is weak, still append the attempted query and observed outcome into `queries_tried`.
 
 Use domain targeting:
 * syzbot: `include_domains=["syzbot.org", "syzkaller.appspot.com"]`
@@ -87,6 +89,7 @@ If reporting `is_known_bug=False`, include:
 3. `candidate_matches`
 4. `rejection_summary`
 5. A human-readable `evidence` section with "Queries Tried" and why top candidates were rejected
+6. Explicitly mention at least 8 queries were executed
 
 If reporting `is_known_bug=True`, include:
 1. `crash_fingerprint`
@@ -101,6 +104,13 @@ If reporting `is_known_bug=True`, include:
 * Prefer syzbot title-style matching for filesystem crashes.
 * Keep `matched_url` to at most 3 high-confidence links.
 * Use a reviewer mindset before finalizing the binary decision.
+* Before finalizing, perform this self-check:
+  - `len(queries_tried) >= 8`
+  - syzbot queries >= 3
+  - patch/commit queries >= 2
+  - `candidate_matches` is non-empty
+  - if `is_known_bug=False`, `evidence` contains a literal section header `Queries Tried`
+* If any self-check fails, continue searching instead of returning.
 
 Begin your analysis now.
 """

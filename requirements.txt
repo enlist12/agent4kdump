@@ -20,3 +20,5 @@ rich==14.3.2
 tqdm==4.67.1
 langchain_tavily==0.2.17
 pageindex>=0.1.11
+fastapi==0.116.1
+uvicorn==0.35.0
