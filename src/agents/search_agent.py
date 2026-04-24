@@ -53,6 +53,19 @@ def parse_search_results(results: KnownBugAnalysisResult):
     return results.model_dump()
 
 
+def _has_substantive_text(text: Optional[str], min_length: int = 50) -> bool:
+    return bool(text and len(text.strip()) >= min_length)
+
+
+
+def _has_meaningful_query_history(result: KnownBugAnalysisResult) -> bool:
+    informative_queries = 0
+    for item in result.queries_tried:
+        if item.query.strip() and (item.purpose.strip() or item.observed_result.strip()):
+            informative_queries += 1
+    return informative_queries >= 3
+
+
 def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
     """
     Verify if the result meets quality standards.
@@ -67,26 +80,6 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
 
     if not fingerprint.title_candidates:
         return False, "crash_fingerprint must include title_candidates for syzbot matching"
-
-    if len(result.queries_tried) < 8:
-        return False, "Need at least 8 recorded queries in queries_tried"
-
-    syzbot_queries = [
-        item for item in result.queries_tried
-        if any(domain in {"syzbot.org", "syzkaller.appspot.com"} for domain in item.target_domains)
-    ]
-    if len(syzbot_queries) < 3:
-        return False, "Need at least 3 recorded syzbot/syzkaller queries"
-
-    patch_queries = [
-        item for item in result.queries_tried
-        if any(domain in {"lore.kernel.org", "git.kernel.org"} for domain in item.target_domains)
-    ]
-    if len(patch_queries) < 2:
-        return False, "Need at least 2 recorded patch/commit queries"
-
-    if not any("title" in item.purpose.lower() for item in result.queries_tried):
-        return False, "Query plan must include at least one title-oriented query"
 
     if not result.candidate_matches:
         return False, "Need candidate_matches to show accepted or rejected near-matches"
@@ -112,72 +105,33 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
 
         if not valid_entity_url:
             return False, "Known bug claim lacks verifiable entity URLs (bug/commit/CVE links)"
-        
-        if not result.verification_details or len(result.verification_details) < 100:
-            return False, "Verification details missing or too brief (need Phase 4 self-check answers)"
-        
-        # Check if evidence contains checkpoint summaries
-        if "Call Trace" not in result.evidence or "Symptom" not in result.evidence:
-            return False, "Evidence must include 4-checkpoint verification (Call Trace, Symptom, Patch, Falsification)"
-        
-        # Must verify that source code is NOT patched
-        evidence_lower = result.evidence.lower()
-        verification_lower = result.verification_details.lower() if result.verification_details else ""
-        
-        has_source_check = any([
-            "source code" in evidence_lower,
-            "source" in verification_lower and "patch" in verification_lower,
-            "vulnerable" in evidence_lower or "not patched" in evidence_lower,
-            "absence of the fix" in evidence_lower,
-            "fix is missing" in evidence_lower,
-            "missing fix" in evidence_lower,
-            "unpatched" in evidence_lower,
-            "without the fix" in evidence_lower,
-            "patch not present" in evidence_lower,
-            "does not contain the patch" in evidence_lower,
-            ("not patched" in verification_lower) or ("missing fix" in verification_lower)
-        ])
-        
-        if not has_source_check:
-            return False, "Must explicitly verify that source code is NOT patched (compare patch with current source)"
 
         matched_candidates = [item for item in result.candidate_matches if item.verdict == "match"]
         if not matched_candidates:
             return False, "Known-bug conclusion must include at least one matched candidate"
 
-        if not result.final_reasoning or len(result.final_reasoning) < 40:
+        if not _has_substantive_text(result.verification_details, min_length=50):
+            return False, "Verification details missing or too brief (need substantive Phase 4 self-check answers)"
+
+        if not _has_substantive_text(result.evidence, min_length=50):
+            return False, "Known-bug conclusion must include substantive evidence"
+
+        if not result.final_reasoning or len(result.final_reasoning.strip()) < 40:
             return False, "Known-bug conclusion must include final_reasoning"
     else:
         # If claiming no match, must show sufficient search effort
-        evidence_lower = result.evidence.lower()
-
-        if "queries tried" not in evidence_lower:
-            return False, "When reporting is_known_bug=False, evidence must include a 'Queries Tried' section"
-        
-        # Check if they tried multiple searches
-        search_indicators = [
-            "query" in evidence_lower or "search" in evidence_lower,
-            "tried" in evidence_lower or "attempt" in evidence_lower,
-            "0 results" in evidence_lower or "no results" in evidence_lower
-        ]
-        
-        if not any(search_indicators):
-            return False, "When reporting is_known_bug=False, must document search attempts (which queries tried, how many results)"
-        
-        # Warn if suspiciously few searches mentioned
-        if evidence_lower.count("query") + evidence_lower.count("search") + evidence_lower.count("tried") < 3:
-            return False, "Evidence suggests insufficient search attempts (need at least 8-10 diverse queries across 4 rounds)"
-
-        has_syzbot_domain = ("syzbot.org" in evidence_lower) or ("syzkaller.appspot.com" in evidence_lower)
-        if not has_syzbot_domain:
-            return False, "No direct syzbot/syzkaller domain query evidence found"
+        if not _has_meaningful_query_history(result):
+            return False, "When reporting is_known_bug=False, must document several concrete search attempts in queries_tried"
 
         rejected_candidates = [item for item in result.candidate_matches if item.verdict == "rejected"]
         if not rejected_candidates:
             return False, "Unknown-bug conclusion must include rejected near-matches"
 
-        if not result.rejection_summary or len(result.rejection_summary) < 20:
+        if not result.rejection_summary or len(result.rejection_summary.strip()) < 20:
             return False, "Unknown-bug conclusion must include rejection_summary"
+
+        if not _has_substantive_text(result.evidence, min_length=80):
+            return False, "Unknown-bug conclusion must include substantive evidence"
     
     return True, "Result meets quality standards"
 

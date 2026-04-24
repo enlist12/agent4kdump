@@ -72,26 +72,15 @@ class RootCauseAnalysisResult(BaseModel):
         statement: str = Field(description="Faulting or near-faulting source statement")
         invalid_object: str = Field(description="Object or state that is invalid at the crash site")
 
-    class ChainStep(BaseModel):
-        step: int = Field(description="1-based order in the root-cause chain")
-        file: str = Field(description="Source file for this reasoning step")
-        function: str = Field(description="Function for this reasoning step")
-        line: int = Field(description="Relevant source line for this reasoning step")
-        object: str = Field(description="Key object or state for this step")
-        explanation: str = Field(description="Why this step matters in the propagation chain")
-
-    class SourceLocation(BaseModel):
-        label: str = Field(description="Short label such as dereference, assignment, fetch, or guard")
+    class KeyLocation(BaseModel):
+        role: Literal["cause", "propagation", "fix"] = Field(
+            description="Why this location matters in the analysis"
+        )
         file: str = Field(description="Source file")
         function: str = Field(description="Function name")
         line: int = Field(description="1-based source line")
+        object: str = Field(description="Key object or state at this location")
         detail: str = Field(description="Why this location is important")
-
-    class FixCandidate(BaseModel):
-        file: str = Field(description="Source file proposed for the fix")
-        function: str = Field(description="Function proposed for the fix")
-        line: int = Field(description="Approximate insertion or modification line")
-        rationale: str = Field(description="Why this is a plausible minimal fix location")
 
     root_cause: str = Field(
         description="Primary root cause conclusion, including fault type and invalid object/state"
@@ -116,17 +105,9 @@ class RootCauseAnalysisResult(BaseModel):
         default=None,
         description="Structured crash-site information for fast review",
     )
-    root_cause_chain: List[ChainStep] = Field(
+    key_locations: List[KeyLocation] = Field(
         default_factory=list,
-        description="Ordered source-grounded propagation chain from crash site to earliest credible source",
-    )
-    source_locations: List[SourceLocation] = Field(
-        default_factory=list,
-        description="Important source locations worth manual review",
-    )
-    fix_candidates: List[FixCandidate] = Field(
-        default_factory=list,
-        description="Most plausible source locations to implement a minimal fix",
+        description="Key source locations covering cause, propagation, and likely fix point",
     )
     patch_sketch: Optional[str] = Field(
         default=None,

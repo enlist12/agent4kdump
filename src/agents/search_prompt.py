@@ -47,9 +47,6 @@ If an exact-title syzbot query misses, retry with progressively normalized title
 
 **Phase 3: Execute Search and Record Coverage**
 Hard constraints:
-* Try at least 8 distinct queries total.
-* At least 3 queries must target syzbot/syzkaller domains directly.
-* At least 2 queries must target patch/commit sources.
 * Record every query in `queries_tried`.
 * Record top candidates in `candidate_matches`, including rejected near-matches.
 
@@ -78,22 +75,6 @@ Before setting `is_known_bug=True`, run an internal 2-of-3 vote:
 1. Search vote: strong entity-level public evidence exists
 2. Trace vote: crash function plus nearby frames align
 3. Patch vote: patch or discussion intent fits this crash and current source appears vulnerable
-
-Only if at least 2 votes pass, report known bug.
-
-If reporting `is_known_bug=False`, include:
-1. `crash_fingerprint`
-2. `queries_tried`
-3. `candidate_matches`
-4. `rejection_summary`
-5. A human-readable `evidence` section with "Queries Tried" and why top candidates were rejected
-
-If reporting `is_known_bug=True`, include:
-1. `crash_fingerprint`
-2. `queries_tried`
-3. `candidate_matches`
-4. `final_reasoning`
-5. A human-readable `evidence` section with "Voting" and "Top Matched Links"
 
 ### Guidelines:
 * Focus on matching known bugs, not deep root-cause analysis.

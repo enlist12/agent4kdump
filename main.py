@@ -171,31 +171,13 @@ def render_analyze_results(parsed_analyze: dict) -> None:
             if crash_site.get(key) is not None and crash_site.get(key) != "":
                 console.print(f"  - {key}: {crash_site.get(key)}")
 
-    root_cause_chain = parsed_analyze.get("root_cause_chain") or []
-    if root_cause_chain:
-        console.print("[cyan]Root Cause Chain:[/cyan]")
-        for item in root_cause_chain:
+    key_locations = parsed_analyze.get("key_locations") or []
+    if key_locations:
+        console.print("[cyan]Key Locations:[/cyan]")
+        for idx, item in enumerate(key_locations, start=1):
             console.print(
-                f"  {item.get('step')}. {item.get('file')}:{item.get('line')} "
-                f"{item.get('function')}::{item.get('object')} -> {item.get('explanation')}"
-            )
-
-    source_locations = parsed_analyze.get("source_locations") or []
-    if source_locations:
-        console.print("[cyan]Source Locations:[/cyan]")
-        for idx, item in enumerate(source_locations, start=1):
-            console.print(
-                f"  {idx}. [{item.get('label')}] {item.get('file')}:{item.get('line')} "
-                f"{item.get('function')} | {item.get('detail')}"
-            )
-
-    fix_candidates = parsed_analyze.get("fix_candidates") or []
-    if fix_candidates:
-        console.print("[cyan]Fix Candidates:[/cyan]")
-        for idx, item in enumerate(fix_candidates, start=1):
-            console.print(
-                f"  {idx}. {item.get('file')}:{item.get('line')} "
-                f"{item.get('function')} | {item.get('rationale')}"
+                f"  {idx}. [{item.get('role')}] {item.get('file')}:{item.get('line')} "
+                f"{item.get('function')}::{item.get('object')} | {item.get('detail')}"
             )
 
     patch_sketch = parsed_analyze.get("patch_sketch")

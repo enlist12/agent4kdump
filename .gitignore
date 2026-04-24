@@ -22,3 +22,5 @@ syzbotAgent/
 .codex
 AGENTS.md
 temp_report.txt
+.python-version
+uv.lock

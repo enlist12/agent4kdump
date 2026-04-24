@@ -136,7 +136,7 @@ class AnalysisRAGManager:
         fix_suggestion = str(analysis_result.get("fix_suggestion", "")).strip()
         uncertainty = str(analysis_result.get("uncertainty", "") or "").strip()
         crash_site = analysis_result.get("crash_site", {}) or {}
-        root_chain = analysis_result.get("root_cause_chain", []) or []
+        key_locations = analysis_result.get("key_locations", []) or []
         verification_todo = analysis_result.get("verification_todo", []) or []
 
         summary = self._shorten(" ".join([root_cause, trigger_path, fix_suggestion]), limit=280)
@@ -162,11 +162,11 @@ class AnalysisRAGManager:
                 f"Uncertainty: {uncertainty}",
                 f"CaseSignature: {lessons.get('case_signature', '')}",
                 f"ToolStrategy: {lessons.get('tool_strategy', '')}",
-                "RootCauseChain:",
+                "KeyLocations:",
                 *[
-                    f"- step={item.get('step')} {item.get('file')}:{item.get('line')} "
-                    f"{item.get('function')}::{item.get('object')} => {item.get('explanation')}"
-                    for item in root_chain
+                    f"- role={item.get('role')} {item.get('file')}:{item.get('line')} "
+                    f"{item.get('function')}::{item.get('object')} => {item.get('detail')}"
+                    for item in key_locations
                     if isinstance(item, dict)
                 ],
                 "ReusablePlaybook:",

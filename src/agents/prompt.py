@@ -132,9 +132,7 @@ Return a structured `RootCauseAnalysisResult` with:
 - `confidence`
 - `uncertainty`
 - `crash_site`
-- `root_cause_chain`
-- `source_locations`
-- `fix_candidates`
+- `key_locations`
 - `patch_sketch`
 - `verification_todo`
 
@@ -144,8 +142,8 @@ Return a structured `RootCauseAnalysisResult` with:
 - `root_cause` must mention the invalid object/state and concrete source locations.
 - At least one evidence item must contain explicit file/line grounding.
 - `crash_site` should point to the actual dereference/use/free site if possible.
-- `root_cause_chain` should stay compact but concrete; avoid vague summaries.
-- `patch_sketch` must be clearly a demo patch, not a claim that it is complete or compile-tested.
+- `key_locations` should stay compact but concrete; prefer 2-4 high-value locations only.
+- `patch_sketch` is optional; include it only when a localized fix is clear enough to sketch briefly.
 - If the taint chain is incomplete, say so directly in `uncertainty`.
 """
 ).substitute()

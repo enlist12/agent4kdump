@@ -172,14 +172,14 @@ class ExperienceStore:
                     f"- line: {(analysis_result.get('crash_site') or {}).get('line', 'unknown')}",
                     f"- invalid_object: {(analysis_result.get('crash_site') or {}).get('invalid_object', 'unknown')}",
                     "",
-                    "### Root Cause Chain",
+                    "### Key Locations",
                     bullet_list(
                         [
                             (
-                                f"step={item.get('step')} {item.get('file')}:{item.get('line')} "
-                                f"{item.get('function')}::{item.get('object')} => {item.get('explanation')}"
+                                f"role={item.get('role')} {item.get('file')}:{item.get('line')} "
+                                f"{item.get('function')}::{item.get('object')} => {item.get('detail')}"
                             )
-                            for item in analysis_result.get("root_cause_chain", [])
+                            for item in analysis_result.get("key_locations", [])
                             if isinstance(item, dict)
                         ]
                     ),
@@ -238,6 +238,16 @@ class ExperienceStore:
             f"- statement: {crash_site.get('statement', 'unknown')}"
         )
         patch_sketch = analysis_result.get("patch_sketch", "") or "none"
+        key_location_text = bullet_list(
+            [
+                (
+                    f"role={item.get('role')} {item.get('file')}:{item.get('line')} "
+                    f"{item.get('function')}::{item.get('object')} => {item.get('detail')}"
+                )
+                for item in analysis_result.get("key_locations", [])
+                if isinstance(item, dict)
+            ]
+        )
 
         return (
             f"# {storage_obj.get('case_id')}\n\n"
@@ -272,6 +282,8 @@ class ExperienceStore:
             f"{lessons.get('tool_strategy', '')}\n\n"
             "## Verification TODO\n"
             f"{bullet_list(analysis_result.get('verification_todo', []) or [])}\n\n"
+            "## Key Locations\n"
+            f"{key_location_text}\n\n"
             "## Patch Sketch\n"
             f"```diff\n{patch_sketch}\n```\n\n"
             "## Taint Chain\n"
