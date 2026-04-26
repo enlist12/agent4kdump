@@ -116,12 +116,9 @@ def render_search_results(parsed_result: dict) -> None:
     if fingerprint:
         console.print("[cyan]Crash Fingerprint:[/cyan]")
         for key in [
-            "panic_header",
             "fault_type",
             "crash_function",
-            "subsystem",
             "source_path",
-            "access_type",
         ]:
             if fingerprint.get(key):
                 console.print(f"  - {key}: {fingerprint.get(key)}")
@@ -129,8 +126,6 @@ def render_search_results(parsed_result: dict) -> None:
             console.print(f"  - top_frames: {', '.join(fingerprint['top_frames'])}")
         if fingerprint.get("title_candidates"):
             console.print(f"  - title_candidates: {' | '.join(fingerprint['title_candidates'])}")
-        if fingerprint.get("keywords"):
-            console.print(f"  - keywords: {', '.join(fingerprint['keywords'])}")
 
     queries = parsed_result.get("queries_tried") or []
     if queries:
@@ -139,21 +134,11 @@ def render_search_results(parsed_result: dict) -> None:
             domains = ", ".join(item.get("target_domains", [])) or "all"
             console.print(
                 f"  {idx}. [{domains}] {item.get('query', '')} "
-                f"(purpose={item.get('purpose', '')}; observed={item.get('observed_result', '')})"
-            )
-
-    candidates = parsed_result.get("candidate_matches") or []
-    if candidates:
-        console.print("[cyan]Candidate Matches:[/cyan]")
-        for idx, item in enumerate(candidates, start=1):
-            console.print(
-                f"  {idx}. [{item.get('verdict')}/{item.get('relevance')}] "
-                f"{item.get('title', '')} | {item.get('url', '')} | {item.get('reason', '')}"
+                f"(observed={item.get('observed_result', '')})"
             )
 
     print_kv("Evidence", parsed_result.get("evidence"))
-    print_kv("Rejection Summary", parsed_result.get("rejection_summary"))
-    print_kv("Final Reasoning", parsed_result.get("final_reasoning"))
+    print_kv("Matched URLs", parsed_result.get("matched_url"))
     print_kv("Extra Info", parsed_result.get("extra_info"))
 
 

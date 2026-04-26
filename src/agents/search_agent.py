@@ -61,7 +61,7 @@ def _has_substantive_text(text: Optional[str], min_length: int = 50) -> bool:
 def _has_meaningful_query_history(result: KnownBugAnalysisResult) -> bool:
     informative_queries = 0
     for item in result.queries_tried:
-        if item.query.strip() and (item.purpose.strip() or item.observed_result.strip()):
+        if item.query.strip() and item.observed_result.strip():
             informative_queries += 1
     return informative_queries >= 3
 
@@ -80,9 +80,6 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
 
     if not fingerprint.title_candidates:
         return False, "crash_fingerprint must include title_candidates for syzbot matching"
-
-    if not result.candidate_matches:
-        return False, "Need candidate_matches to show accepted or rejected near-matches"
 
     # If claiming it's a known bug, must meet strict requirements
     if result.is_known_bug:
@@ -106,29 +103,15 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
         if not valid_entity_url:
             return False, "Known bug claim lacks verifiable entity URLs (bug/commit/CVE links)"
 
-        matched_candidates = [item for item in result.candidate_matches if item.verdict == "match"]
-        if not matched_candidates:
-            return False, "Known-bug conclusion must include at least one matched candidate"
-
         if not _has_substantive_text(result.verification_details, min_length=50):
             return False, "Verification details missing or too brief (need substantive Phase 4 self-check answers)"
 
         if not _has_substantive_text(result.evidence, min_length=50):
             return False, "Known-bug conclusion must include substantive evidence"
-
-        if not result.final_reasoning or len(result.final_reasoning.strip()) < 40:
-            return False, "Known-bug conclusion must include final_reasoning"
     else:
         # If claiming no match, must show sufficient search effort
         if not _has_meaningful_query_history(result):
             return False, "When reporting is_known_bug=False, must document several concrete search attempts in queries_tried"
-
-        rejected_candidates = [item for item in result.candidate_matches if item.verdict == "rejected"]
-        if not rejected_candidates:
-            return False, "Unknown-bug conclusion must include rejected near-matches"
-
-        if not result.rejection_summary or len(result.rejection_summary.strip()) < 20:
-            return False, "Unknown-bug conclusion must include rejection_summary"
 
         if not _has_substantive_text(result.evidence, min_length=80):
             return False, "Unknown-bug conclusion must include substantive evidence"
@@ -149,7 +132,7 @@ Review rules:
 1. Check if crash_fingerprint is concrete enough to support the query plan.
 2. Check if links are verifiable bug/commit/CVE entities.
 3. Check if call-trace/symptom statements are consistent with linked evidence.
-4. Check if candidate_matches and rejection reasons support the binary decision.
+4. Check if the recorded query history and evidence support the binary decision.
 5. Check if patch-presence (patched/unpatched) verification is explicit when is_known_bug=True.
 6. Keep binary output and list missing checks if any.
 """
@@ -253,11 +236,9 @@ Initial decision:
 - is_known_bug: {structured_result.is_known_bug}
 - crash_fingerprint: {structured_result.crash_fingerprint}
 - queries_tried: {structured_result.queries_tried}
-- candidate_matches: {structured_result.candidate_matches}
 - matched_url: {structured_result.matched_url}
 - evidence: {structured_result.evidence}
-- rejection_summary: {structured_result.rejection_summary}
-- final_reasoning: {structured_result.final_reasoning}
+- extra_info: {structured_result.extra_info}
 - verification_details: {structured_result.verification_details}
 """
 

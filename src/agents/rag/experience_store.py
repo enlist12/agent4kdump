@@ -118,53 +118,39 @@ class ExperienceStore:
             lessons = record.get("lessons", {}) or {}
             profile = record.get("profile", {}) or {}
             analysis_result = record.get("analysis_result", {}) or {}
-            retrieved_context = record.get("retrieved_context", {}) or {}
-            trace = record.get("trace_summary", {}) or {}
+            reuse_boundary = [
+                *lessons.get("applicability", []),
+                *lessons.get("non_applicability", []),
+            ]
+            evidence_boundary = str(lessons.get("evidence_boundary", "")).strip()
+            if evidence_boundary:
+                reuse_boundary.append(evidence_boundary)
+            experience_notes = [
+                *lessons.get("reusable_playbook", []),
+                *lessons.get("fix_patterns", []),
+            ]
 
             sections.extend(
                 [
                     f"## {record.get('case_id', 'unknown_case')}",
                     "",
                     "### Metadata",
-                    f"- created_at: {record.get('created_at', '')}",
                     f"- confidence: {record.get('confidence', 'unknown')}",
                     f"- kernel_version: {profile.get('kernel_version', 'unknown')}",
                     f"- bug_type: {profile.get('bug_type', 'unknown')}",
                     f"- driver_candidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}",
                     f"- keywords: {', '.join(record.get('keywords', [])) or 'none'}",
                     "",
-                    "### Summary",
-                    str(record.get("summary", "")).strip() or "none",
+                    "### Experience Summary",
+                    str(lessons.get("case_signature", "")).strip()
+                    or str(record.get("summary", "")).strip()
+                    or "none",
                     "",
-                    "### Root Cause",
+                    "### Root Cause Pattern",
                     str(record.get("root_cause", "")).strip() or "none",
                     "",
-                    "### Trigger Path",
+                    "### Trigger Pattern",
                     str(record.get("trigger_path", "")).strip() or "none",
-                    "",
-                    "### Case Signature",
-                    str(lessons.get("case_signature", "")).strip() or "none",
-                    "",
-                    "### Reusable Playbook",
-                    bullet_list(lessons.get("reusable_playbook", [])),
-                    "",
-                    "### Applicability",
-                    bullet_list(lessons.get("applicability", [])),
-                    "",
-                    "### Non-Applicability",
-                    bullet_list(lessons.get("non_applicability", [])),
-                    "",
-                    "### Fix Patterns",
-                    bullet_list(lessons.get("fix_patterns", [])),
-                    "",
-                    "### Evidence Boundary",
-                    str(lessons.get("evidence_boundary", "")).strip() or "none",
-                    "",
-                    "### Tool Strategy",
-                    str(lessons.get("tool_strategy", "")).strip() or "none",
-                    "",
-                    "### Verification TODO",
-                    bullet_list(analysis_result.get("verification_todo", []) or []),
                     "",
                     "### Crash Site",
                     f"- file: {(analysis_result.get('crash_site') or {}).get('file', 'unknown')}",
@@ -184,23 +170,17 @@ class ExperienceStore:
                         ]
                     ),
                     "",
+                    "### Reusable Experience",
+                    bullet_list(experience_notes),
+                    "",
+                    "### Reuse Boundary",
+                    bullet_list(reuse_boundary),
+                    "",
                     "### Evidence",
                     bullet_list(analysis_result.get("evidence", []) or []),
                     "",
-                    "### Retrieval Text",
-                    str(record.get("retrieval_text", "")).strip() or "none",
-                    "",
-                    "### Retrieved Context Summary",
-                    str((retrieved_context or {}).get("context", "")).strip() or "none",
-                    "",
-                    "### Trace Summary",
-                    bullet_list(
-                        [
-                            f"{item.get('name')} x{item.get('count')} args={item.get('sample_args')}"
-                            for item in trace.get("tool_usage", [])
-                            if isinstance(item, dict)
-                        ]
-                    ),
+                    "### Fix Suggestion",
+                    str(analysis_result.get("fix_suggestion", "")).strip() or "none",
                     "",
                 ]
             )
@@ -212,8 +192,18 @@ class ExperienceStore:
         """Render one stored experience into a readable markdown card."""
         analysis_result = storage_obj.get("analysis_result", {}) or {}
         profile = storage_obj.get("profile", {}) or {}
-        trace = storage_obj.get("trace_summary", {}) or {}
         lessons = storage_obj.get("lessons", {}) or {}
+        reuse_boundary = [
+            *lessons.get("applicability", []),
+            *lessons.get("non_applicability", []),
+        ]
+        evidence_boundary = str(lessons.get("evidence_boundary", "")).strip()
+        if evidence_boundary:
+            reuse_boundary.append(evidence_boundary)
+        experience_notes = [
+            *lessons.get("reusable_playbook", []),
+            *lessons.get("fix_patterns", []),
+        ]
 
         def bullet_list(items: List[str]) -> str:
             filtered = [str(item).strip() for item in items if str(item).strip()]
@@ -221,14 +211,6 @@ class ExperienceStore:
                 return "- none"
             return "\n".join(f"- {item}" for item in filtered)
 
-        tool_lines = bullet_list(
-            [
-                f"{item.get('name')} x{item.get('count')} (sample args: {item.get('sample_args')})"
-                for item in trace.get("tool_usage", [])
-                if isinstance(item, dict)
-            ]
-        )
-        taint_lines = bullet_list(trace.get("taint_outline", []) or [])
         crash_site = analysis_result.get("crash_site", {}) or {}
         crash_site_text = (
             f"- file: {crash_site.get('file', 'unknown')}\n"
@@ -237,7 +219,6 @@ class ExperienceStore:
             f"- invalid_object: {crash_site.get('invalid_object', 'unknown')}\n"
             f"- statement: {crash_site.get('statement', 'unknown')}"
         )
-        patch_sketch = analysis_result.get("patch_sketch", "") or "none"
         key_location_text = bullet_list(
             [
                 (
@@ -251,43 +232,26 @@ class ExperienceStore:
 
         return (
             f"# {storage_obj.get('case_id')}\n\n"
-            f"- created_at: {storage_obj.get('created_at')}\n"
             f"- confidence: {analysis_result.get('confidence', 'unknown')}\n"
             f"- kernel_version: {profile.get('kernel_version', 'unknown')}\n"
             f"- bug_type: {profile.get('bug_type', 'unknown')}\n"
             f"- driver_candidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}\n\n"
-            "## Root Cause\n"
+            "## Experience Summary\n"
+            f"{lessons.get('case_signature', '') or storage_obj.get('summary', '')}\n\n"
+            "## Root Cause Pattern\n"
             f"{analysis_result.get('root_cause', '')}\n\n"
             "## Crash Site\n"
             f"{crash_site_text}\n\n"
-            "## Trigger Path\n"
+            "## Trigger Pattern\n"
             f"{analysis_result.get('trigger_path', '')}\n\n"
-            "## Case Signature\n"
-            f"{lessons.get('case_signature', '')}\n\n"
+            "## Key Locations\n"
+            f"{key_location_text}\n\n"
+            "## Reusable Experience\n"
+            f"{bullet_list(experience_notes)}\n\n"
+            "## Reuse Boundary\n"
+            f"{bullet_list(reuse_boundary)}\n\n"
             "## Evidence\n"
             f"{bullet_list(analysis_result.get('evidence', []) or [])}\n\n"
             "## Fix Suggestion\n"
-            f"{analysis_result.get('fix_suggestion', '')}\n\n"
-            "## Reusable Playbook\n"
-            f"{bullet_list(lessons.get('reusable_playbook', []) or [])}\n\n"
-            "## Applicability\n"
-            f"{bullet_list(lessons.get('applicability', []) or [])}\n\n"
-            "## Non-Applicability\n"
-            f"{bullet_list(lessons.get('non_applicability', []) or [])}\n\n"
-            "## Fix Patterns\n"
-            f"{bullet_list(lessons.get('fix_patterns', []) or [])}\n\n"
-            "## Evidence Boundary\n"
-            f"{lessons.get('evidence_boundary', '')}\n\n"
-            "## Tool Strategy\n"
-            f"{lessons.get('tool_strategy', '')}\n\n"
-            "## Verification TODO\n"
-            f"{bullet_list(analysis_result.get('verification_todo', []) or [])}\n\n"
-            "## Key Locations\n"
-            f"{key_location_text}\n\n"
-            "## Patch Sketch\n"
-            f"```diff\n{patch_sketch}\n```\n\n"
-            "## Taint Chain\n"
-            f"{taint_lines}\n\n"
-            "## Tool Calls\n"
-            f"{tool_lines}\n"
+            f"{analysis_result.get('fix_suggestion', '')}\n"
         )

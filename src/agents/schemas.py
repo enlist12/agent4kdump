@@ -120,10 +120,6 @@ class RootCauseAnalysisResult(BaseModel):
 
 
 class CrashFingerprint(BaseModel):
-    panic_header: str = Field(
-        default="",
-        description="Primary panic header or oops title",
-    )
     fault_type: str = Field(
         default="",
         description="Normalized fault type",
@@ -136,25 +132,13 @@ class CrashFingerprint(BaseModel):
         default_factory=list,
         description="Top semantic frames near the crash site",
     )
-    subsystem: Optional[str] = Field(
-        default=None,
-        description="Best-effort subsystem or module name",
-    )
     source_path: Optional[str] = Field(
         default=None,
         description="Best-effort source path such as fs/jfs/jfs_imap.c",
     )
-    access_type: Optional[str] = Field(
-        default=None,
-        description="Best-effort access type such as read, write, execute, free, or unknown",
-    )
     title_candidates: List[str] = Field(
         default_factory=list,
         description="Exact or normalized title candidates for syzbot matching",
-    )
-    keywords: List[str] = Field(
-        default_factory=list,
-        description="Important search keywords extracted from the crash report",
     )
 
 
@@ -167,40 +151,9 @@ class SearchQueryRecord(BaseModel):
         default_factory=list,
         description="Domains filtered or targeted for this query",
     )
-    purpose: str = Field(
-        default="",
-        description="Why this query was executed",
-    )
     observed_result: str = Field(
         default="",
         description="Short summary of observed result count or top findings",
-    )
-
-
-class SearchCandidateMatch(BaseModel):
-    url: str = Field(
-        default="",
-        description="Candidate bug, patch, or discussion URL",
-    )
-    title: str = Field(
-        default="",
-        description="Short title or summary of the candidate",
-    )
-    source: str = Field(
-        default="unknown",
-        description="Entity type such as syzbot, cve, lore, or git",
-    )
-    relevance: Literal["high", "medium", "low"] = Field(
-        default="low",
-        description="Confidence that this candidate is relevant enough to review",
-    )
-    verdict: Literal["match", "rejected", "needs_more_check"] = Field(
-        default="needs_more_check",
-        description="Current candidate status",
-    )
-    reason: str = Field(
-        default="",
-        description="Why this candidate was accepted or rejected",
     )
 
 
@@ -230,18 +183,6 @@ class KnownBugAnalysisResult(BaseModel):
     queries_tried: List[SearchQueryRecord] = Field(
         default_factory=list,
         description="All search queries executed and their observed outcomes",
-    )
-    candidate_matches: List[SearchCandidateMatch] = Field(
-        default_factory=list,
-        description="Top reviewed search candidates with acceptance or rejection reasons",
-    )
-    rejection_summary: Optional[str] = Field(
-        default=None,
-        description="Why the strongest near-matches were rejected",
-    )
-    final_reasoning: Optional[str] = Field(
-        default=None,
-        description="Compact final explanation for the binary known or unknown decision",
     )
 
 
