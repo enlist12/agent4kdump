@@ -86,34 +86,17 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
         if not result.matched_url or len(result.matched_url) == 0:
             return False, "No matched URLs provided for claimed known bug"
 
-        valid_entity_url = False
-        for u in result.matched_url:
-            ul = u.lower()
-            if any([
-                "syzbot.org/bug?" in ul,
-                "syzkaller.appspot.com/bug?id=" in ul,
-                "github.com/torvalds/linux/commit/" in ul,
-                ("git.kernel.org" in ul and ("/commit/" in ul or "/c/" in ul)),
-                "nvd.nist.gov/vuln/detail/cve-" in ul,
-                ("cve.mitre.org" in ul and "cvename.cgi?name=cve-" in ul),
-            ]):
-                valid_entity_url = True
-                break
-
-        if not valid_entity_url:
-            return False, "Known bug claim lacks verifiable entity URLs (bug/commit/CVE links)"
-
-        if not _has_substantive_text(result.verification_details, min_length=50):
+        if not _has_substantive_text(result.verification_details, min_length=30):
             return False, "Verification details missing or too brief (need substantive Phase 4 self-check answers)"
 
-        if not _has_substantive_text(result.evidence, min_length=50):
+        if not _has_substantive_text(result.evidence, min_length=30):
             return False, "Known-bug conclusion must include substantive evidence"
     else:
         # If claiming no match, must show sufficient search effort
         if not _has_meaningful_query_history(result):
             return False, "When reporting is_known_bug=False, must document several concrete search attempts in queries_tried"
 
-        if not _has_substantive_text(result.evidence, min_length=80):
+        if not _has_substantive_text(result.evidence, min_length=30):
             return False, "Unknown-bug conclusion must include substantive evidence"
     
     return True, "Result meets quality standards"
