@@ -62,26 +62,9 @@ class TaintStepResult(BaseModel):
     terminal_reason: Optional[str] = Field(
         default=None, description="Why the current branch should stop"
     )
-
-
+    
+## 这里的rootcause部分只能保留下面的仅剩的参数
 class RootCauseAnalysisResult(BaseModel):
-    class CrashSiteDetail(BaseModel):
-        file: str = Field(description="Source file of the crash site")
-        function: str = Field(description="Function containing the faulting statement")
-        line: int = Field(description="1-based source line of the faulting statement")
-        statement: str = Field(description="Faulting or near-faulting source statement")
-        invalid_object: str = Field(description="Object or state that is invalid at the crash site")
-
-    class KeyLocation(BaseModel):
-        role: Literal["cause", "propagation", "fix"] = Field(
-            description="Why this location matters in the analysis"
-        )
-        file: str = Field(description="Source file")
-        function: str = Field(description="Function name")
-        line: int = Field(description="1-based source line")
-        object: str = Field(description="Key object or state at this location")
-        detail: str = Field(description="Why this location is important")
-
     root_cause: str = Field(
         description="Primary root cause conclusion, including fault type and invalid object/state"
     )
@@ -94,29 +77,25 @@ class RootCauseAnalysisResult(BaseModel):
     fix_suggestion: str = Field(
         description="Minimal actionable fix direction tied to the vulnerable logic"
     )
-    confidence: Literal["low", "medium", "high"] = Field(
-        description="Confidence level for the root-cause conclusion"
+
+class CrashSiteDetail(BaseModel):
+    file: str = Field(description="Source file of the crash site")
+    function: str = Field(description="Function containing the faulting statement")
+    line: int = Field(description="1-based source line of the faulting statement")
+    statement: str = Field(description="Faulting or near-faulting source statement")
+    invalid_object: str = Field(description="Object or state that is invalid at the crash site")
+
+class KeyLocation(BaseModel):
+    role: Literal["cause", "propagation", "fix"] = Field(
+        description="Why this location matters in the analysis"
     )
-    uncertainty: Optional[str] = Field(
-        default=None,
-        description="Any unresolved ambiguity, missing evidence, or quality warning",
-    )
-    crash_site: Optional[CrashSiteDetail] = Field(
-        default=None,
-        description="Structured crash-site information for fast review",
-    )
-    key_locations: List[KeyLocation] = Field(
-        default_factory=list,
-        description="Key source locations covering cause, propagation, and likely fix point",
-    )
-    patch_sketch: Optional[str] = Field(
-        default=None,
-        description="Git diff style demo patch showing the minimal fix direction",
-    )
-    verification_todo: List[str] = Field(
-        default_factory=list,
-        description="Remaining checks needed to firm up uncertain parts of the conclusion",
-    )
+    file: str = Field(description="Source file")
+    function: str = Field(description="Function name")
+    line: int = Field(description="1-based source line")
+    object: str = Field(description="Key object or state at this location")
+    detail: str = Field(description="Why this location is important")
+    
+
 
 
 class CrashFingerprint(BaseModel):
