@@ -2,6 +2,7 @@ from langchain_core.tools import tool
 import json
 from typing import Annotated
 from os import path
+import os
 # Global variable to hold the config path
 LINUX_PATH = None
 
@@ -15,6 +16,25 @@ def get_linux_path():
     if LINUX_PATH is None:
         raise RuntimeError("linux_path not set. Call set_linux_path() first.")
     return LINUX_PATH
+
+
+def _resolve_linux_source_path(file_path: str) -> str:
+    """
+    Resolve a file path and ensure it stays within the configured linux source tree.
+    """
+    linux_root = path.realpath(get_linux_path())
+    candidate_path = file_path
+    if not path.isabs(candidate_path):
+        candidate_path = path.join(linux_root, candidate_path)
+
+    real_candidate_path = path.realpath(candidate_path)
+
+    if real_candidate_path != linux_root and not real_candidate_path.startswith(linux_root + os.sep):
+        raise PermissionError(
+            f"Access denied: '{file_path}' is outside linux source tree '{linux_root}'"
+        )
+
+    return real_candidate_path
 
 configMap = {}
 
@@ -53,8 +73,7 @@ def read_file_by_line_number(
     Used to read the context content of a specified line number in a file.
     """
     try:
-        if not file_path.startswith("/"):
-            file_path = path.join(get_linux_path(), file_path)
+        file_path = _resolve_linux_source_path(file_path)
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
@@ -75,6 +94,8 @@ def read_file_by_line_number(
 
     except FileNotFoundError:
         return f"❌ File not found: {file_path}"
+    except PermissionError as e:
+        return f"❌ {e}"
     except json.JSONDecodeError:
         return "❌ Input is not a valid JSON string"
     except Exception as e:
@@ -89,11 +110,12 @@ def read_file(
     If there is an error reading the file, please make sure the path is absolute.
     """
     try:
-        if not file_path.startswith("/"):
-            file_path = path.join(get_linux_path(), file_path)
+        file_path = _resolve_linux_source_path(file_path)
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         return content
+    except PermissionError as e:
+        return f"❌ {e}"
     except Exception as e:
         return f"❌ Failed to read file: {e}"
 

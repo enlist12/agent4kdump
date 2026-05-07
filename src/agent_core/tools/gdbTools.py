@@ -2,6 +2,7 @@ from langchain_core.tools import tool
 from .commandTools import ALLOWED_COMMANDS
 
 from typing import Annotated
+import shlex
 
 # Global variable to hold the kdump_analysis instance
 _KDUMP_ANALYSIS_INSTANCE = None
@@ -29,6 +30,29 @@ DANGEROUS_GDB_COMMANDS = [
     'quit',        # Exit GDB
     'q',           # Quit shorthand
 ]
+
+SHELL_CONTROL_OPERATORS = (';', '|', '&', '>', '<', '`', '$', '(', ')', '{', '}', '\n')
+
+
+def _is_safe_shell_command(shell_cmd: str) -> bool:
+    """
+    Allow only simple single-command shell invocations that start with an allowlisted binary.
+    """
+    if not shell_cmd:
+        return False
+
+    if any(token in shell_cmd for token in SHELL_CONTROL_OPERATORS):
+        return False
+
+    try:
+        parts = shlex.split(shell_cmd)
+    except ValueError:
+        return False
+
+    if not parts:
+        return False
+
+    return parts[0] in ALLOWED_COMMANDS
 
 def filter_gdb_command(command: str) -> bool:
     """
@@ -64,9 +88,7 @@ def filter_gdb_command(command: str) -> bool:
             else: 
                 shell_cmd = ' '.join(command.split()[1:]).strip()
 
-            if shell_cmd:
-                shell_first_word = shell_cmd.split()[0]
-                return shell_first_word in ALLOWED_COMMANDS
+            return _is_safe_shell_command(shell_cmd)
         
         # Block all other dangerous commands
         return False
