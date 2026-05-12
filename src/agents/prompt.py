@@ -120,7 +120,6 @@ The report must stay grounded in the crash facts and the traced taint chain.
 5. Build a source-grounded root-cause chain with file/function/line for each important hop.
 6. Suggest the smallest plausible fix consistent with the traced logic.
 7. Provide a git-diff-style demo patch sketch when a localized fix point is plausible.
-8. If any step is not fully proven, keep confidence conservative and record it in `uncertainty`.
 
 ## Output
 
@@ -129,22 +128,12 @@ Return a structured `RootCauseAnalysisResult` with:
 - `trigger_path`
 - `evidence`
 - `fix_suggestion`
-- `confidence`
-- `uncertainty`
-- `crash_site`
-- `key_locations`
-- `patch_sketch`
-- `verification_todo`
 
 ## Notes
 
 - Do not invent upstream facts that are not grounded in the crash report or source trace.
 - `root_cause` must mention the invalid object/state and concrete source locations.
 - At least one evidence item must contain explicit file/line grounding.
-- `crash_site` should point to the actual dereference/use/free site if possible.
-- `key_locations` should stay compact but concrete; prefer 2-4 high-value locations only.
-- `patch_sketch` is optional; include it only when a localized fix is clear enough to sketch briefly.
-- If the taint chain is incomplete, say so directly in `uncertainty`.
 """
 ).substitute()
 
@@ -224,7 +213,7 @@ ROOT_CAUSE_INPUT_PROMPT = Template(
     """Next is the taint-analysis path and related explanations.
 Based on the full analysis, determine the root cause of the crash and provide a fix suggestion.
 Use only the crash report, taint chain, and source-grounded observations.
-If any chain segment is unproven, state it in `uncertainty` instead of asserting it.
+If any chain segment is unproven, state the gap explicitly in `root_cause` or `evidence` instead of asserting it.
 
 ## Crash Report
 $crash_report
@@ -240,14 +229,8 @@ $warning_text
 2. `trigger_path` must be ordered and concise.
 3. `evidence` must include crash-trace and source-level observations.
 4. `fix_suggestion` must be minimal, actionable, and mention a concrete source location.
-5. `crash_site` must include file, function, line, statement, and invalid object if known.
-6. `root_cause_chain` must give the major source-grounded propagation hops.
-7. `source_locations` must list key dereference, assignment, fetch, or guard points.
-8. `fix_candidates` must identify 1-2 plausible patch locations.
-9. `patch_sketch` must be a git-diff-style demo patch when a localized fix is plausible. Prefix the first line with `DEMO PATCH ONLY`.
-10. `verification_todo` must list unresolved checks if confidence is not high.
-11. `confidence` must be `low`, `medium`, or `high`.
-12. If the chain is incomplete, `uncertainty` must explain why.
+5. `root_cause` should explain the earliest grounded source reason, not only the crash point.
+6. Keep the output limited to the four fields in `RootCauseAnalysisResult`.
 """
 )
 

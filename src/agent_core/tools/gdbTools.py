@@ -1,8 +1,8 @@
-from langchain_core.tools import tool
 from .commandTools import ALLOWED_COMMANDS
 
 from typing import Annotated
 import shlex
+from .tool_timeout import timed_tool
 
 # Global variable to hold the kdump_analysis instance
 _KDUMP_ANALYSIS_INSTANCE = None
@@ -96,7 +96,13 @@ def filter_gdb_command(command: str) -> bool:
     return True
     
 
-@tool
+@timed_tool(
+    timeout_seconds=20,
+    timeout_factory=lambda name, sec: {
+        "result": "error",
+        "output": [f"Tool '{name}' timed out after {sec} seconds."],
+    },
+)
 def execute_gdb_command(
     gdb_command: Annotated[str, "The GDB command to execute (e.g., 'info registers', 'bt')"]
 )-> Annotated[dict, "Output of the gdb command"]:
@@ -126,7 +132,7 @@ def execute_gdb_command(
     except Exception as e:
         return {'result': 'error', 'output': [f"Error executing gdb command: {str(e)}"]}
     
-@tool
+@timed_tool(timeout_seconds=30)
 def getCrashReport() -> Annotated[str, "Crash report from kdump-gdbserver"]:
     """
     Get the crash report from kdump-gdbserver.

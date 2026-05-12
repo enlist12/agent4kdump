@@ -1,17 +1,17 @@
 from typing import Annotated, Dict, Any
 from langchain.agents import create_agent
-from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.memory import MemorySaver
 from ..model import get_model, MAX_RECURSION_DEPTH
 from .commandTools import build_shell_middleware
+from .tool_timeout import timed_tool
 
 MAX_AGENTS = 5
 _SUB_AGENTS: Dict[int, Dict[str, Any]] = {}
 _NEXT_AGENT_ID = 0
 
-@tool
+@timed_tool(timeout_seconds=30)
 def create_sub_agent(
     system_prompt: Annotated[str, "The system prompt defining the agent's behavior"],
     name: Annotated[str, "A short name for the agent to help identify it"] = "Assistant"
@@ -55,7 +55,7 @@ def create_sub_agent(
     except Exception as e:
         return f"Error creating agent: {str(e)}"
 
-@tool
+#@timed_tool(timeout_seconds=120)
 def chat_with_sub_agent(
     agent_id: Annotated[int, "The ID of the agent to chat with"],
     message: Annotated[str, "The message or instruction for the agent"]
@@ -101,7 +101,7 @@ def chat_with_sub_agent(
     except Exception as e:
         return f"Error executing agent '{name}' (ID: {agent_id}): {str(e)}"
 
-@tool
+@timed_tool(timeout_seconds=10)
 def remove_sub_agent(
     agent_id: Annotated[int, "The ID of the agent to remove"]
 ) -> Annotated[str, "Result of the removal operation"]:
@@ -115,7 +115,7 @@ def remove_sub_agent(
     del _SUB_AGENTS[agent_id]
     return f"Agent '{name}' (ID: {agent_id}) has been removed."
 
-@tool
+@timed_tool(timeout_seconds=10)
 def list_sub_agents() -> Annotated[str, "List of active agents"]:
     """
     List all currently active sub-agents with their IDs and names.

@@ -1,11 +1,11 @@
 from .codequery import get_proj_path
-from langchain_core.tools import tool
 from .codequery import get_func_def_codequery, get_struct_def_codequery, get_global_var_def_codequery, get_caller_codequery, get_callee_codequery
 from .get_func_def import read_func, read_struct_def, read_global_var, read_func_first_line, read_marco
 from ..gdbTools import execute_gdb_command
 from typing import Annotated
 import os
 import json
+from ..tool_timeout import timed_tool
 
 def get_from_vmlinux(target: str, kind: str) -> dict|None:
     """
@@ -55,7 +55,7 @@ def get_from_vmlinux(target: str, kind: str) -> dict|None:
 
 
 
-@tool
+@timed_tool(timeout_seconds=45)
 def get_func_callback(
     func_names: Annotated[list[str], "List of function names to query"]
 ) -> Annotated[str, "Function definitions"]:
@@ -122,7 +122,7 @@ def get_func_callback(
 
     return response
 
-@tool
+@timed_tool(timeout_seconds=45)
 def get_caller_callback(
     func_names: Annotated[list[str], "List of function names to query for callers"]
 ) -> Annotated[str, "Call sites of the functions"]:
@@ -155,7 +155,7 @@ def get_caller_callback(
             
     return response
 
-@tool
+@timed_tool(timeout_seconds=45)
 def get_callee_callback(
     func_names: Annotated[list[str], "List of function names to query for callees"]
 ) -> Annotated[str, "Functions called by the specified functions"]:
@@ -186,7 +186,7 @@ def get_callee_callback(
             
     return response
 
-@tool
+@timed_tool(timeout_seconds=45)
 def get_struct_callback(
     struct_names: Annotated[list[str], "List of struct names to query(e.g., ['task_struct', 'file'])"]
 ) -> Annotated[str, "Struct definitions"]:
@@ -239,7 +239,7 @@ def get_struct_callback(
 def _is_macro_def(arg):
     return arg.isupper()
 
-@tool
+@timed_tool(timeout_seconds=45)
 def get_global_var(
     var_names: Annotated[list[str], "List of global variable or macro names to query"]
 ) -> Annotated[str, "Global variable/macro definitions"]:

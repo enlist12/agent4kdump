@@ -41,7 +41,6 @@ class ExperienceStore:
         summary: str,
         root_cause: str,
         trigger_path: str,
-        confidence: str,
         keywords: List[str],
         retrieval_text: str,
         trace_summary: Dict[str, Any],
@@ -61,7 +60,6 @@ class ExperienceStore:
             "summary": summary,
             "root_cause": root_cause,
             "trigger_path": trigger_path,
-            "confidence": confidence,
             "keywords": keywords,
             "retrieval_text": retrieval_text,
             "trace_summary": trace_summary,
@@ -116,7 +114,6 @@ class ExperienceStore:
         sorted_records = sorted(records, key=lambda item: str(item.get("created_at", "")))
         for record in sorted_records:
             lessons = record.get("lessons", {}) or {}
-            profile = record.get("profile", {}) or {}
             analysis_result = record.get("analysis_result", {}) or {}
             reuse_boundary = [
                 *lessons.get("applicability", []),
@@ -134,13 +131,6 @@ class ExperienceStore:
                 [
                     f"## {record.get('case_id', 'unknown_case')}",
                     "",
-                    "### Metadata",
-                    f"- confidence: {record.get('confidence', 'unknown')}",
-                    f"- kernel_version: {profile.get('kernel_version', 'unknown')}",
-                    f"- bug_type: {profile.get('bug_type', 'unknown')}",
-                    f"- driver_candidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}",
-                    f"- keywords: {', '.join(record.get('keywords', [])) or 'none'}",
-                    "",
                     "### Experience Summary",
                     str(lessons.get("case_signature", "")).strip()
                     or str(record.get("summary", "")).strip()
@@ -151,24 +141,6 @@ class ExperienceStore:
                     "",
                     "### Trigger Pattern",
                     str(record.get("trigger_path", "")).strip() or "none",
-                    "",
-                    "### Crash Site",
-                    f"- file: {(analysis_result.get('crash_site') or {}).get('file', 'unknown')}",
-                    f"- function: {(analysis_result.get('crash_site') or {}).get('function', 'unknown')}",
-                    f"- line: {(analysis_result.get('crash_site') or {}).get('line', 'unknown')}",
-                    f"- invalid_object: {(analysis_result.get('crash_site') or {}).get('invalid_object', 'unknown')}",
-                    "",
-                    "### Key Locations",
-                    bullet_list(
-                        [
-                            (
-                                f"role={item.get('role')} {item.get('file')}:{item.get('line')} "
-                                f"{item.get('function')}::{item.get('object')} => {item.get('detail')}"
-                            )
-                            for item in analysis_result.get("key_locations", [])
-                            if isinstance(item, dict)
-                        ]
-                    ),
                     "",
                     "### Reusable Experience",
                     bullet_list(experience_notes),
@@ -191,7 +163,6 @@ class ExperienceStore:
     def _render_case_markdown(storage_obj: Dict[str, Any]) -> str:
         """Render one stored experience into a readable markdown card."""
         analysis_result = storage_obj.get("analysis_result", {}) or {}
-        profile = storage_obj.get("profile", {}) or {}
         lessons = storage_obj.get("lessons", {}) or {}
         reuse_boundary = [
             *lessons.get("applicability", []),
@@ -211,41 +182,14 @@ class ExperienceStore:
                 return "- none"
             return "\n".join(f"- {item}" for item in filtered)
 
-        crash_site = analysis_result.get("crash_site", {}) or {}
-        crash_site_text = (
-            f"- file: {crash_site.get('file', 'unknown')}\n"
-            f"- function: {crash_site.get('function', 'unknown')}\n"
-            f"- line: {crash_site.get('line', 'unknown')}\n"
-            f"- invalid_object: {crash_site.get('invalid_object', 'unknown')}\n"
-            f"- statement: {crash_site.get('statement', 'unknown')}"
-        )
-        key_location_text = bullet_list(
-            [
-                (
-                    f"role={item.get('role')} {item.get('file')}:{item.get('line')} "
-                    f"{item.get('function')}::{item.get('object')} => {item.get('detail')}"
-                )
-                for item in analysis_result.get("key_locations", [])
-                if isinstance(item, dict)
-            ]
-        )
-
         return (
             f"# {storage_obj.get('case_id')}\n\n"
-            f"- confidence: {analysis_result.get('confidence', 'unknown')}\n"
-            f"- kernel_version: {profile.get('kernel_version', 'unknown')}\n"
-            f"- bug_type: {profile.get('bug_type', 'unknown')}\n"
-            f"- driver_candidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}\n\n"
             "## Experience Summary\n"
             f"{lessons.get('case_signature', '') or storage_obj.get('summary', '')}\n\n"
             "## Root Cause Pattern\n"
             f"{analysis_result.get('root_cause', '')}\n\n"
-            "## Crash Site\n"
-            f"{crash_site_text}\n\n"
             "## Trigger Pattern\n"
             f"{analysis_result.get('trigger_path', '')}\n\n"
-            "## Key Locations\n"
-            f"{key_location_text}\n\n"
             "## Reusable Experience\n"
             f"{bullet_list(experience_notes)}\n\n"
             "## Reuse Boundary\n"

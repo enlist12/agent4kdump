@@ -8,6 +8,8 @@ import time
 
 cache_dir = "cache"
 proj_path = None
+CODEQUERY_COMMAND_TIMEOUT_SEC = 30
+CODEQUERY_BUILD_TIMEOUT_SEC = 180
 
 
 def _extract_rel_path(line: str, project_path: str) -> list:
@@ -57,16 +59,24 @@ def __exist_db_file(project_root_path):
     return os.path.exists(__get_db_file(project_root_path))
 
 
+def _run_command(command, *, timeout: int, **kwargs):
+    try:
+        return subprocess.run(command, timeout=timeout, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        logging.error("Command timed out after %s seconds: %s", timeout, command)
+        raise TimeoutError(f"Command timed out after {timeout} seconds: {command}") from exc
+
+
 def __has_dependency():
     # Check if the codequery command is available
     try:
-        subprocess.run(['cscope', '--version'],
-                       capture_output=True, check=True)
-        subprocess.run(['ctags', '--version'],
-                       capture_output=True, check=True)
-        subprocess.run(['cqmakedb', '-v'], capture_output=True, check=True)
+        _run_command(['cscope', '--version'],
+                     capture_output=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
+        _run_command(['ctags', '--version'],
+                     capture_output=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
+        _run_command(['cqmakedb', '-v'], capture_output=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
         return True
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError, TimeoutError):
         return False
 
 
@@ -84,26 +94,26 @@ def create_cq_db(project_path):
             return
         
         with open(cscope_files_path, 'w') as f:
-            subprocess.run(
+            _run_command(
                 ['find', '.', '-type', 'f', '(', '-name', '*.c', '-o', '-name',
                  '*.cpp', '-o', '-name', '*.h', '-o', '-name', '*.hpp', ')'],
                 cwd=project_path,
                 stdout=f,
-                stderr=sys.stderr, check=True)
+                stderr=sys.stderr, check=True, timeout=CODEQUERY_BUILD_TIMEOUT_SEC)
 
         with log_time("cscope database creation"):
-            subprocess.run(['cscope', '-b', '-c', '-k'],
-                           cwd=project_path, check=True)
+            _run_command(['cscope', '-b', '-c', '-k'],
+                         cwd=project_path, check=True, timeout=CODEQUERY_BUILD_TIMEOUT_SEC)
 
         with log_time("ctags database creation"):
-            subprocess.run(['ctags', '--fields=+i', '-n', '-L', './cscope.files'],
-                           cwd=project_path, check=True)
+            _run_command(['ctags', '--fields=+i', '-n', '-L', './cscope.files'],
+                         cwd=project_path, check=True, timeout=CODEQUERY_BUILD_TIMEOUT_SEC)
 
         with log_time("codequery database creation"):
-            subprocess.run(['cqmakedb', '-s', './cq.db', '-c' './cscope.out', '-t', './tags', '-p'],
-                           cwd=project_path, check=True)
+            _run_command(['cqmakedb', '-s', './cq.db', '-c' './cscope.out', '-t', './tags', '-p'],
+                         cwd=project_path, check=True, timeout=CODEQUERY_BUILD_TIMEOUT_SEC)
 
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, TimeoutError):
         raise Exception("Error creating codequery database")
 
 
@@ -135,9 +145,9 @@ def __get_func_cq(project_path, function_name):
 
     # Run the cqsearch command and capture its output
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
+        result = _run_command(
+            command, capture_output=True, text=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
+    except (subprocess.CalledProcessError, TimeoutError) as e:
         print(f"Error executing cqsearch: {e}")
         return res
 
@@ -179,9 +189,9 @@ def __get_struct_cq(project_path, struct_name):
 
     # Run the cqsearch command and capture its output
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
+        result = _run_command(
+            command, capture_output=True, text=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
+    except (subprocess.CalledProcessError, TimeoutError) as e:
         print(f"Error executing cqsearch: {e}")
         return res
 
@@ -210,13 +220,26 @@ def __get_union_cq(project_path, union_name):
     ]
     
     res = []
-    cqsearch_result = subprocess.run(command, capture_output=True, text=True)
+    try:
+        cqsearch_result = _run_command(
+            command, capture_output=True, text=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC
+        )
+    except TimeoutError:
+        return None
     if cqsearch_result.returncode != 0:
         logging.error("Error running cqsearch command.")
         return None
     
-    result = subprocess.run(
-        ['grep', '-e', 'union.*{'], input=cqsearch_result.stdout, capture_output=True, text=True)
+    try:
+        result = _run_command(
+            ['grep', '-e', 'union.*{'],
+            input=cqsearch_result.stdout,
+            capture_output=True,
+            text=True,
+            timeout=CODEQUERY_COMMAND_TIMEOUT_SEC,
+        )
+    except TimeoutError:
+        return None
     if result.returncode not in [0, 1]:
         logging.error("Error filtering cqsearch results with grep.")
         return None
@@ -261,14 +284,27 @@ def __get_global_var_cq(project_path, var_name, grep_pattern='struct'):
     # EXAMPLE: `cqsearch -s cq.db -p 1 -u -e -t "slim_rx_cfg"
 
     # run cqsearch
-    cqsearch_result = subprocess.run(command, capture_output=True, text=True)
+    try:
+        cqsearch_result = _run_command(
+            command, capture_output=True, text=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC
+        )
+    except TimeoutError:
+        return None
     if cqsearch_result.returncode != 0:
         logging.error("Error running cqsearch command.")
         return None
 
     # pipe the output of cqsearch to grep pattern
-    result = subprocess.run(
-        ['grep', grep_pattern], input=cqsearch_result.stdout, capture_output=True, text=True)
+    try:
+        result = _run_command(
+            ['grep', grep_pattern],
+            input=cqsearch_result.stdout,
+            capture_output=True,
+            text=True,
+            timeout=CODEQUERY_COMMAND_TIMEOUT_SEC,
+        )
+    except TimeoutError:
+        return None
     # grep returns 1 if no matches are found
     if result.returncode not in [0, 1]:
         logging.error("Error filtering cqsearch results with grep.")
@@ -358,9 +394,9 @@ def __get_caller_cq(project_path, function_name):
 
     # Run the cqsearch command and capture its output
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
+        result = _run_command(
+            command, capture_output=True, text=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
+    except (subprocess.CalledProcessError, TimeoutError) as e:
         print(f"Error executing cqsearch: {e}")
         return res
 
@@ -399,9 +435,9 @@ def __get_callee_cq(project_path, function_name):
 
     # Run the cqsearch command and capture its output
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
+        result = _run_command(
+            command, capture_output=True, text=True, check=True, timeout=CODEQUERY_COMMAND_TIMEOUT_SEC)
+    except (subprocess.CalledProcessError, TimeoutError) as e:
         print(f"Error executing cqsearch: {e}")
         return res
 

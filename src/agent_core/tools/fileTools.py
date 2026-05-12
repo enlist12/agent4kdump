@@ -1,8 +1,8 @@
-from langchain_core.tools import tool
 import json
 from typing import Annotated
 from os import path
 import os
+from .tool_timeout import timed_tool
 # Global variable to hold the config path
 LINUX_PATH = None
 
@@ -38,7 +38,7 @@ def _resolve_linux_source_path(file_path: str) -> str:
 
 configMap = {}
 
-@tool
+@timed_tool(timeout_seconds=10, timeout_factory=lambda _name, _sec: False)
 def read_config(
     config_name: Annotated[str, "The config name, e.g., CONFIG_KASAN"]
 ) -> Annotated[bool, "whether the config is enabled"]:
@@ -63,7 +63,7 @@ def read_config(
         return False
     return configMap[config_name]
 
-@tool
+@timed_tool(timeout_seconds=10)
 def read_file_by_line_number(
     file_path: Annotated[str, "The path of the file"],
     line_number: Annotated[int, "The line number to read (starting from 1)"],
@@ -101,7 +101,7 @@ def read_file_by_line_number(
     except Exception as e:
         return f"❌ Failed to read file: {e}"
     
-@tool
+@timed_tool(timeout_seconds=10)
 def read_file(
     file_path: Annotated[str, "The path of the file"]
 ) -> Annotated[str, "Complete content of the file"]:

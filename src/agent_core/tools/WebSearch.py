@@ -1,4 +1,3 @@
-﻿from langchain_core.tools import tool
 from typing import Annotated
 import os
 
@@ -6,11 +5,12 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from langchain_tavily import TavilySearch
+from .tool_timeout import timed_tool
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 
-@tool
+@timed_tool(timeout_seconds=30)
 def web_search(
     query: Annotated[str, "The search query. Construct freely based on your analysis - no fixed format required."],
     max_results: Annotated[int, "Maximum number of results to return"] = 5,
@@ -74,7 +74,7 @@ def web_search(
     return output
 
 
-@tool
+@timed_tool(timeout_seconds=20)
 def fetch_webpage_content(
     url: Annotated[str, "The URL of the webpage to fetch"],
     max_length: Annotated[int, "Maximum character length of content to return"] = 5000,

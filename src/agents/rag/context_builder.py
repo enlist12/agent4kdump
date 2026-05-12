@@ -132,12 +132,7 @@ class AnalysisRAGManager:
         root_cause = str(analysis_result.get("root_cause", "")).strip()
         trigger_path = str(analysis_result.get("trigger_path", "")).strip()
         evidence = analysis_result.get("evidence", [])
-        confidence = str(analysis_result.get("confidence", "unknown"))
         fix_suggestion = str(analysis_result.get("fix_suggestion", "")).strip()
-        uncertainty = str(analysis_result.get("uncertainty", "") or "").strip()
-        crash_site = analysis_result.get("crash_site", {}) or {}
-        key_locations = analysis_result.get("key_locations", []) or []
-        verification_todo = analysis_result.get("verification_todo", []) or []
 
         summary = self._shorten(" ".join([root_cause, trigger_path, fix_suggestion]), limit=280)
         keywords = profile.get("keywords", [])
@@ -154,21 +149,11 @@ class AnalysisRAGManager:
                 f"KernelVersion: {profile.get('kernel_version', 'unknown')}",
                 f"DriverCandidates: {', '.join(profile.get('driver_candidates', [])) or 'none'}",
                 f"Functions: {', '.join(profile.get('functions', [])) or 'none'}",
-                f"CrashSite: {crash_site.get('file', 'unknown')}:{crash_site.get('line', 'unknown')} "
-                f"{crash_site.get('function', 'unknown')} object={crash_site.get('invalid_object', 'unknown')}",
                 f"RootCause: {root_cause}",
                 f"TriggerPath: {trigger_path}",
                 f"FixSuggestion: {fix_suggestion}",
-                f"Uncertainty: {uncertainty}",
                 f"CaseSignature: {lessons.get('case_signature', '')}",
                 f"ToolStrategy: {lessons.get('tool_strategy', '')}",
-                "KeyLocations:",
-                *[
-                    f"- role={item.get('role')} {item.get('file')}:{item.get('line')} "
-                    f"{item.get('function')}::{item.get('object')} => {item.get('detail')}"
-                    for item in key_locations
-                    if isinstance(item, dict)
-                ],
                 "ReusablePlaybook:",
                 *[f"- {item}" for item in lessons.get("reusable_playbook", [])],
                 "Applicability:",
@@ -178,8 +163,6 @@ class AnalysisRAGManager:
                 "FixPatterns:",
                 *[f"- {item}" for item in lessons.get("fix_patterns", [])],
                 f"EvidenceBoundary: {lessons.get('evidence_boundary', '')}",
-                "VerificationTodo:",
-                *[f"- {item}" for item in verification_todo if isinstance(item, str) and item.strip()],
                 "Evidence:",
                 *[f"- {item}" for item in evidence],
             ]
@@ -189,7 +172,6 @@ class AnalysisRAGManager:
             summary=summary,
             root_cause=root_cause,
             trigger_path=trigger_path,
-            confidence=confidence,
             keywords=keywords,
             retrieval_text=retrieval_text,
             trace_summary=trace_summary,
@@ -249,7 +231,6 @@ class AnalysisRAGManager:
                     "reusable_playbook": lessons.get("reusable_playbook", []),
                     "applicability": lessons.get("applicability", []),
                     "non_applicability": lessons.get("non_applicability", []),
-                    "confidence": record.get("confidence", hit.get("confidence", "reference")),
                 }
             )
         return merged
@@ -290,7 +271,6 @@ class AnalysisRAGManager:
                     "reusable_playbook": rec.get("lessons", {}).get("reusable_playbook", []),
                     "applicability": rec.get("lessons", {}).get("applicability", []),
                     "non_applicability": rec.get("lessons", {}).get("non_applicability", []),
-                    "confidence": rec.get("confidence", "unknown"),
                     "score": score + keyword_boost,
                     "source": "local_store",
                 }
