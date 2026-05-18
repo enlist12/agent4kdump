@@ -2,37 +2,32 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
 class ExperienceStore:
-    """Persist solved cases and maintain markdown corpus for retrieval."""
+    """Persist solved cases and maintain the markdown corpus used by RAG."""
 
     def __init__(self, base_dir: Path, logger: Any) -> None:
         self.base_dir = Path(base_dir)
         self.logger = logger
         self.base_dir.mkdir(parents=True, exist_ok=True)
-
         self.experience_jsonl = self.base_dir / "experience_store.jsonl"
         self.experience_docs_dir = self.base_dir / "experience_docs"
         self.experience_docs_dir.mkdir(parents=True, exist_ok=True)
         self.history_corpus_path = self.base_dir / "history_corpus.md"
 
-    def load_records(self) -> List[Dict[str, Any]]:
-        """Load persisted case records from jsonl store."""
+    def load_records(self) -> list[dict[str, Any]]:
         if not self.experience_jsonl.exists():
             return []
-
-        records: List[Dict[str, Any]] = []
-        with self.experience_jsonl.open("r", encoding="utf-8") as fp:
-            for raw in fp:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    self.logger.warning("Skipping malformed experience record line.")
+        records: list[dict[str, Any]] = []
+        for raw in self.experience_jsonl.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            try:
+                records.append(json.loads(raw))
+            except json.JSONDecodeError:
+                self.logger.warning("Skipping malformed experience record line.")
         return records
 
     def persist_case(
@@ -41,22 +36,19 @@ class ExperienceStore:
         summary: str,
         root_cause: str,
         trigger_path: str,
-        keywords: List[str],
+        keywords: list[str],
         retrieval_text: str,
-        trace_summary: Dict[str, Any],
-        lessons: Dict[str, Any],
-        profile: Dict[str, Any],
-        analysis_result: Dict[str, Any],
-        retrieved_context: Dict[str, Any],
+        trace_summary: dict[str, Any],
+        lessons: dict[str, Any],
+        profile: dict[str, Any],
+        analysis_result: dict[str, Any],
+        retrieved_context: dict[str, Any],
     ) -> str:
-        """Persist one solved case to jsonl and markdown card."""
-        now_iso = datetime.now(timezone.utc).isoformat()
-        case_hash = hashlib.md5((now_iso + retrieval_text).encode("utf-8")).hexdigest()[:12]
-        case_id = f"case_{case_hash}"
-
-        storage_obj = {
+        now = datetime.now(timezone.utc).isoformat()
+        case_id = "case_" + hashlib.md5((now + retrieval_text).encode("utf-8")).hexdigest()[:12]
+        record = {
             "case_id": case_id,
-            "created_at": now_iso,
+            "created_at": now,
             "summary": summary,
             "root_cause": root_cause,
             "trigger_path": trigger_path,
@@ -68,32 +60,23 @@ class ExperienceStore:
             "analysis_result": analysis_result,
             "retrieved_context": retrieved_context,
         }
-
         with self.experience_jsonl.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(storage_obj, ensure_ascii=False) + "\n")
-
-        md_path = self.experience_docs_dir / f"{case_id}.md"
-        md_path.write_text(self._render_case_markdown(storage_obj), encoding="utf-8")
-
+            fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+        (self.experience_docs_dir / f"{case_id}.md").write_text(render_case_markdown(record), encoding="utf-8")
         self.logger.info("Persisted successful analysis case: %s", case_id)
         return case_id
 
-    def build_history_corpus(self) -> Dict[str, Any]:
-        """Build a single aggregated markdown corpus for PageIndex tree generation."""
+    def build_history_corpus(self) -> dict[str, Any]:
         records = self.load_records()
         if not records:
             if self.history_corpus_path.exists():
                 self.history_corpus_path.unlink()
-            return {
-                "exists": False,
-                "record_count": 0,
-                "corpus_hash": "",
-                "corpus_path": self.history_corpus_path,
-            }
-
-        content = self._render_history_corpus(records)
+            return {"exists": False, "record_count": 0, "corpus_hash": "", "corpus_path": self.history_corpus_path}
+        content = "# Historical Kernel Crash Experience Corpus\n\n" + "\n\n".join(
+            render_case_markdown(record, heading_level=2) for record in sorted(records, key=lambda item: str(item.get("created_at", "")))
+        )
+        content = content.strip() + "\n"
         self.history_corpus_path.write_text(content, encoding="utf-8")
-
         return {
             "exists": True,
             "record_count": len(records),
@@ -101,101 +84,28 @@ class ExperienceStore:
             "corpus_path": self.history_corpus_path,
         }
 
-    @staticmethod
-    def _render_history_corpus(records: List[Dict[str, Any]]) -> str:
-        sections = ["# Historical Kernel Crash Experience Corpus", ""]
 
-        def bullet_list(items: List[str]) -> str:
-            filtered = [str(item).strip() for item in items if str(item).strip()]
-            if not filtered:
-                return "- none"
-            return "\n".join(f"- {item}" for item in filtered)
+def render_case_markdown(record: dict[str, Any], heading_level: int = 1) -> str:
+    lessons = record.get("lessons", {}) or {}
+    analysis = record.get("analysis_result", {}) or {}
+    h1 = "#" * heading_level
+    h2 = "#" * (heading_level + 1)
+    experience = [*lessons.get("reusable_playbook", []), *lessons.get("fix_patterns", [])]
+    boundary = [*lessons.get("applicability", []), *lessons.get("non_applicability", [])]
+    if lessons.get("evidence_boundary"):
+        boundary.append(lessons["evidence_boundary"])
+    return (
+        f"{h1} {record.get('case_id', 'unknown_case')}\n\n"
+        f"{h2} Experience Summary\n{lessons.get('case_signature') or record.get('summary', 'none')}\n\n"
+        f"{h2} Root Cause Pattern\n{record.get('root_cause') or analysis.get('root_cause') or 'none'}\n\n"
+        f"{h2} Trigger Pattern\n{record.get('trigger_path') or analysis.get('trigger_path') or 'none'}\n\n"
+        f"{h2} Reusable Experience\n{bullet_list(experience)}\n\n"
+        f"{h2} Reuse Boundary\n{bullet_list(boundary)}\n\n"
+        f"{h2} Evidence\n{bullet_list(analysis.get('evidence', []) or [])}\n\n"
+        f"{h2} Fix Suggestion\n{analysis.get('fix_suggestion') or 'none'}"
+    )
 
-        sorted_records = sorted(records, key=lambda item: str(item.get("created_at", "")))
-        for record in sorted_records:
-            lessons = record.get("lessons", {}) or {}
-            analysis_result = record.get("analysis_result", {}) or {}
-            reuse_boundary = [
-                *lessons.get("applicability", []),
-                *lessons.get("non_applicability", []),
-            ]
-            evidence_boundary = str(lessons.get("evidence_boundary", "")).strip()
-            if evidence_boundary:
-                reuse_boundary.append(evidence_boundary)
-            experience_notes = [
-                *lessons.get("reusable_playbook", []),
-                *lessons.get("fix_patterns", []),
-            ]
 
-            sections.extend(
-                [
-                    f"## {record.get('case_id', 'unknown_case')}",
-                    "",
-                    "### Experience Summary",
-                    str(lessons.get("case_signature", "")).strip()
-                    or str(record.get("summary", "")).strip()
-                    or "none",
-                    "",
-                    "### Root Cause Pattern",
-                    str(record.get("root_cause", "")).strip() or "none",
-                    "",
-                    "### Trigger Pattern",
-                    str(record.get("trigger_path", "")).strip() or "none",
-                    "",
-                    "### Reusable Experience",
-                    bullet_list(experience_notes),
-                    "",
-                    "### Reuse Boundary",
-                    bullet_list(reuse_boundary),
-                    "",
-                    "### Evidence",
-                    bullet_list(analysis_result.get("evidence", []) or []),
-                    "",
-                    "### Fix Suggestion",
-                    str(analysis_result.get("fix_suggestion", "")).strip() or "none",
-                    "",
-                ]
-            )
-
-        return "\n".join(sections).strip() + "\n"
-
-    @staticmethod
-    def _render_case_markdown(storage_obj: Dict[str, Any]) -> str:
-        """Render one stored experience into a readable markdown card."""
-        analysis_result = storage_obj.get("analysis_result", {}) or {}
-        lessons = storage_obj.get("lessons", {}) or {}
-        reuse_boundary = [
-            *lessons.get("applicability", []),
-            *lessons.get("non_applicability", []),
-        ]
-        evidence_boundary = str(lessons.get("evidence_boundary", "")).strip()
-        if evidence_boundary:
-            reuse_boundary.append(evidence_boundary)
-        experience_notes = [
-            *lessons.get("reusable_playbook", []),
-            *lessons.get("fix_patterns", []),
-        ]
-
-        def bullet_list(items: List[str]) -> str:
-            filtered = [str(item).strip() for item in items if str(item).strip()]
-            if not filtered:
-                return "- none"
-            return "\n".join(f"- {item}" for item in filtered)
-
-        return (
-            f"# {storage_obj.get('case_id')}\n\n"
-            "## Experience Summary\n"
-            f"{lessons.get('case_signature', '') or storage_obj.get('summary', '')}\n\n"
-            "## Root Cause Pattern\n"
-            f"{analysis_result.get('root_cause', '')}\n\n"
-            "## Trigger Pattern\n"
-            f"{analysis_result.get('trigger_path', '')}\n\n"
-            "## Reusable Experience\n"
-            f"{bullet_list(experience_notes)}\n\n"
-            "## Reuse Boundary\n"
-            f"{bullet_list(reuse_boundary)}\n\n"
-            "## Evidence\n"
-            f"{bullet_list(analysis_result.get('evidence', []) or [])}\n\n"
-            "## Fix Suggestion\n"
-            f"{analysis_result.get('fix_suggestion', '')}\n"
-        )
+def bullet_list(items: list[Any]) -> str:
+    values = [str(item).strip() for item in items if str(item).strip()]
+    return "\n".join(f"- {item}" for item in values) if values else "- none"

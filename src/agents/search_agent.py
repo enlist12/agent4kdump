@@ -15,12 +15,6 @@ from .schemas import KnownBugAnalysisResult,SearchReviewResult
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
 
-ANALYSIS_MESSAGE = """
-Start analysis. Determine if this crash is a known bug (CVE/Syzbot).
-"""
-
-
-
 @tool
 def submit_known_bug_analysis(
     is_known_bug: bool,
@@ -158,7 +152,16 @@ def runSearchAgent(max_retries: int = 2):
     langfuse_handler = CallbackHandler()
     
     for attempt in range(max_retries + 1):
-        initial_input = {"messages": [HumanMessage(content=ANALYSIS_MESSAGE + COT_PROMPT)]}
+        initial_input = {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "Start analysis. Determine if this crash is a known bug (CVE/Syzbot).\n\n"
+                        f"{COT_PROMPT}"
+                    )
+                )
+            ]
+        }
         
         if attempt > 0:
             # Add retry context

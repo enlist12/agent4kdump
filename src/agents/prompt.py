@@ -1,10 +1,81 @@
 """Prompt definitions for analysis agents."""
 
+from dataclasses import dataclass
 from string import Template
 
 from agents.search_prompt import COT_PROMPT
 
-ROLE_DEFINE = Template(
+
+def _with_cot(prompt: str) -> str:
+    return f"{prompt}\n\n{COT_PROMPT}"
+
+
+@dataclass(frozen=True)
+class StartDebugPrompt:
+    template: Template
+
+    def render(self, crash_report: str, rag_context: str) -> str:
+        return self.template.substitute(
+            crash_report=crash_report,
+            rag_context=rag_context,
+        )
+
+
+@dataclass(frozen=True)
+class ObjectAnalysisPrompt:
+    system: str
+    input_text: str
+
+    def input(self) -> str:
+        return _with_cot(self.input_text)
+
+
+@dataclass(frozen=True)
+class TaintAnalysisPrompt:
+    system: str
+    history_template: Template
+    branch_template: Template
+
+    def history(
+        self,
+        step: int,
+        current_context: str,
+        history_desc: str,
+        branch_text: str = "",
+    ) -> str:
+        prompt = self.history_template.substitute(
+            step=step,
+            current_context=current_context,
+            history_desc=history_desc,
+        )
+        if branch_text:
+            prompt = f"{branch_text}\n\n{prompt}"
+        return _with_cot(prompt)
+
+    def branch(self, condition: str, assumption: str, reason: str) -> str:
+        return self.branch_template.substitute(
+            condition=condition,
+            assumption=assumption,
+            reason=reason,
+        )
+
+
+@dataclass(frozen=True)
+class RootCauseAnalysisPrompt:
+    system: str
+    input_template: Template
+
+    def input(self, crash_report: str, history: str, warning_text: str) -> str:
+        return _with_cot(
+            self.input_template.substitute(
+                crash_report=crash_report,
+                history=history,
+                warning_text=warning_text,
+            )
+        )
+
+
+_ROLE_DEFINE = Template(
     """## Role Definition
 
 You are a senior Linux kernel programmer debugging a crash from a kdump / gdb context.
@@ -16,24 +87,7 @@ Your job is to produce a source-grounded root-cause analysis for the current cod
 """
 ).substitute()
 
-TAINT_ANALYSIS_EXPLAIN = Template(
-    """## About Taint Analysis
-
-The debugging process follows reverse taint analysis.
-You must first identify the object that directly leads to the crash, then trace how its bad state
-is introduced step by step until you reach the earliest source that can actually explain the crash.
-
-Rules for taint tracing:
-1. Each step traces exactly ONE upstream hop.
-2. Prefer concrete source evidence over name similarity.
-3. Each hop must stay grounded in file, function, and line.
-4. If tracing reaches an external input boundary, config boundary, call boundary, global state boundary,
-   or clearly converges on the same object again, mark `end=true`.
-5. Do not skip directly to a final root cause during intermediate taint steps.
-"""
-).substitute()
-
-OBJECT_ANALYSIS_WORKFLOW = Template(
+_OBJECT_ANALYSIS_WORKFLOW = Template(
     """## Your Task
 
 In this node, identify the object that directly causes the crash.
@@ -67,8 +121,22 @@ Return exactly one structured `TaintAnalysisObj` with:
 """
 ).substitute()
 
-TAINT_ANALYSIS_WORKFLOW = Template(
-    """## Input
+_TAINT_ANALYSIS_WORKFLOW = Template(
+    """## About Taint Analysis
+
+The debugging process follows reverse taint analysis.
+You must first identify the object that directly leads to the crash, then trace how its bad state
+is introduced step by step until you reach the earliest source that can actually explain the crash.
+
+Rules for taint tracing:
+1. Each step traces exactly ONE upstream hop.
+2. Prefer concrete source evidence over name similarity.
+3. Each hop must stay grounded in file, function, and line.
+4. If tracing reaches an external input boundary, config boundary, call boundary, global state boundary,
+   or clearly converges on the same object again, mark `end=true`.
+5. Do not skip directly to a final root cause during intermediate taint steps.
+
+## Input
 
 You will be given the current taint object and the history of previously traced objects.
 
@@ -101,7 +169,7 @@ Return exactly one structured `TaintStepResult`:
 """
 ).substitute()
 
-ROOT_CAUSE_ANALYSIS_WORKFLOW = Template(
+_ROOT_CAUSE_ANALYSIS_WORKFLOW = Template(
     """## Input
 
 You will be given the crash report, the taint-analysis path, and any workflow warnings.
@@ -137,8 +205,9 @@ Return a structured `RootCauseAnalysisResult` with:
 """
 ).substitute()
 
-ANALYSIS_MESSAGE = Template(
-"""
+ANALYSIS_PROMPT = StartDebugPrompt(
+    Template(
+        """
 Next, I will provide you with a parsed crash report.
 The bug is already classified as NOT known by `search_agent`.
 Based on the report, you need to debug the crash step by step and produce a source-grounded root-cause analysis.
@@ -157,12 +226,13 @@ $crash_report
 $rag_context
 
 """
+    )
 )
 
 
-
-OBJECT_ANALYSIS_INPUT_PROMPT = Template(
-    """## Current Node
+OBJECT_ANALYSIS_PROMPT = ObjectAnalysisPrompt(
+    system=_ROLE_DEFINE + _OBJECT_ANALYSIS_WORKFLOW,
+    input_text="""## Current Node
 
 object_analysis
 
@@ -170,11 +240,14 @@ Based on the crash report already provided, identify the immediate crash object.
 Return exactly one structured `TaintAnalysisObj`.
 Keep file, function, and line concrete.
 Set `end=false` unless tracing is already complete at this first object.
-"""
+""",
 )
 
-TAINT_HISTORY_PROMPT = Template(
-    """You are performing taint analysis to find the root cause of a kernel crash.
+
+TAINT_ANALYSIS_PROMPT = TaintAnalysisPrompt(
+    system=_ROLE_DEFINE + _TAINT_ANALYSIS_WORKFLOW,
+    history_template=Template(
+        """You are performing taint analysis to find the root cause of a kernel crash.
 
 We have already tainted the following objects. Do not choose them again unless tracing has converged and you are explicitly ending the chain:
 $history_desc
@@ -194,10 +267,9 @@ Important:
 - Prefer objects closer to the real origin of the bad state.
 - Keep the result concrete: file, function, line, and explanation.
 """
-)
-
-BRANCH_ASSUMPTION_PROMPT = Template(
-    """## Current Conditional Branch
+    ),
+    branch_template=Template(
+        """## Current Conditional Branch
 
 Analyze only this conditional branch.
 
@@ -207,10 +279,14 @@ Reason: $reason
 
 Do not import conclusions from sibling branches unless they are proven common source facts.
 """
+    ),
 )
 
-ROOT_CAUSE_INPUT_PROMPT = Template(
-    """Next is the taint-analysis path and related explanations.
+
+ROOT_CAUSE_ANALYSIS_PROMPT = RootCauseAnalysisPrompt(
+    system=_ROLE_DEFINE + _ROOT_CAUSE_ANALYSIS_WORKFLOW,
+    input_template=Template(
+        """Next is the taint-analysis path and related explanations.
 Based on the full analysis, determine the root cause of the crash and provide a fix suggestion.
 Use only the crash report, taint chain, and source-grounded observations.
 If any chain segment is unproven, state the gap explicitly in `root_cause` or `evidence` instead of asserting it.
@@ -232,26 +308,12 @@ $warning_text
 5. `root_cause` should explain the earliest grounded source reason, not only the crash point.
 6. Keep the output limited to the four fields in `RootCauseAnalysisResult`.
 """
-)
-
-AGENT_INPUT_PROMPT = Template(
-    """$prompt
-
-$cot_prompt
-"""
+    ),
 )
 
 __all__ = [
-    "COT_PROMPT",
-    "ROLE_DEFINE",
-    "TAINT_ANALYSIS_EXPLAIN",
-    "OBJECT_ANALYSIS_WORKFLOW",
-    "TAINT_ANALYSIS_WORKFLOW",
-    "ROOT_CAUSE_ANALYSIS_WORKFLOW",
-    "ANALYSIS_MESSAGE",
-    "OBJECT_ANALYSIS_INPUT_PROMPT",
-    "TAINT_HISTORY_PROMPT",
-    "BRANCH_ASSUMPTION_PROMPT",
-    "ROOT_CAUSE_INPUT_PROMPT",
-    "AGENT_INPUT_PROMPT",
+    "ANALYSIS_PROMPT",
+    "OBJECT_ANALYSIS_PROMPT",
+    "TAINT_ANALYSIS_PROMPT",
+    "ROOT_CAUSE_ANALYSIS_PROMPT",
 ]

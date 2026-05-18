@@ -1,88 +1,67 @@
 import os
 import re
-from typing import Any, Dict, List
-
-from agent_core.tools.WebSearch import fetch_webpage_content, web_search
-
+from typing import Any
 
 URL_RE = re.compile(r"https?://[^\s)]+")
 
 
 class LinuxBackgroundCollector:
-    """Collect Linux kernel subsystem background independently from history retrieval."""
+    """Optionally collect a few Linux documentation snippets for the crash profile."""
 
     def __init__(self, logger: Any) -> None:
         self.logger = logger
 
-    def collect(self, profile: Dict[str, Any]) -> List[Dict[str, str]]:
+    def collect(self, profile: dict[str, Any]) -> list[dict[str, str]]:
         if "TAVILY_API_KEY" not in os.environ:
             return []
+        from agent_core.tools.WebSearch import fetch_webpage_content, web_search
 
-        queries = self._build_queries(profile)
-        if not queries:
-            return []
-
-        backgrounds: List[Dict[str, str]] = []
-        for query in queries[:2]:
+        snippets: list[dict[str, str]] = []
+        for query in self._queries(profile)[:2]:
             try:
-                result_text = web_search.func(
-                    query=query,
-                    max_results=3,
-                    search_depth="advanced",
-                    include_domains=[
-                        "docs.kernel.org",
-                        "lore.kernel.org",
-                        "kernel.org",
-                        "syzkaller.appspot.com",
-                    ],
+                result_text = str(
+                    web_search.func(
+                        query=query,
+                        max_results=3,
+                        search_depth="advanced",
+                        include_domains=["docs.kernel.org", "lore.kernel.org", "kernel.org", "syzkaller.appspot.com"],
+                    )
                 )
             except Exception as exc:
                 self.logger.warning("web_search failed: %s", exc)
                 continue
-
-            if not isinstance(result_text, str) or result_text.startswith("Error:"):
+            if result_text.startswith("Error:"):
                 continue
-
-            urls = URL_RE.findall(result_text)
-            for url in urls[:2]:
+            for url in URL_RE.findall(result_text)[:2]:
                 try:
-                    page = fetch_webpage_content.func(url=url, max_length=2200)
+                    page = str(fetch_webpage_content.func(url=url, max_length=2200))
                 except Exception:
                     continue
-                if not isinstance(page, str) or page.startswith("Error:"):
-                    continue
-                backgrounds.append(
-                    {
-                        "query": query,
-                        "url": url,
-                        "content": self._shorten(page, limit=1600),
-                    }
-                )
-                if len(backgrounds) >= 3:
-                    return backgrounds
+                if not page.startswith("Error:"):
+                    snippets.append({"query": query, "url": url, "content": shorten(page, 1600)})
+                if len(snippets) >= 3:
+                    return snippets
+        return snippets
 
-        return backgrounds
-
-    def _build_queries(self, profile: Dict[str, Any]) -> List[str]:
-        kernel_version = profile.get("kernel_version", "unknown")
+    @staticmethod
+    def _queries(profile: dict[str, Any]) -> list[str]:
+        queries: list[str] = []
         drivers = profile.get("driver_candidates", [])
         functions = profile.get("functions", [])
-
-        queries: List[str] = []
+        kernel_version = profile.get("kernel_version", "unknown")
         if drivers:
-            queries.append(f"Linux kernel {drivers[0]} driver architecture and data path")
-            queries.append(f"docs.kernel.org {drivers[0]} driver design")
+            queries.extend([
+                f"Linux kernel {drivers[0]} driver architecture and data path",
+                f"docs.kernel.org {drivers[0]} driver design",
+            ])
         if functions:
             queries.append(f"Linux kernel function {functions[0]} responsibilities and call chain")
         if kernel_version != "unknown":
-            queries.append(f"Linux kernel {kernel_version} subsystem documentation and behavior changes")
+            queries.append(f"Linux kernel {kernel_version} subsystem documentation behavior changes")
         queries.append("Linux kernel driver debugging workflow docs.kernel.org")
-
         return list(dict.fromkeys(queries))
 
-    @staticmethod
-    def _shorten(text: str, limit: int) -> str:
-        text = text.strip()
-        if len(text) <= limit:
-            return text
-        return text[:limit] + " ..."
+
+def shorten(text: str, limit: int) -> str:
+    text = str(text or "").strip()
+    return text if len(text) <= limit else text[:limit] + " ..."
