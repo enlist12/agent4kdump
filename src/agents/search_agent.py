@@ -7,8 +7,8 @@ from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from typing import Optional, List
 from pydantic import BaseModel, Field
-from agent_core.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
-from agent_core.tools.commandTools import build_shell_middleware
+from agents.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
+from agents.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
 
 from .schemas import KnownBugAnalysisResult,SearchReviewResult

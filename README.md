@@ -32,8 +32,8 @@
 ├─ docs/                         # 设计文档、改造记录、变更日志
 ├─ src/
 │  ├─ kdump_analyze/             # kdump / gdb 封装与 crash report 处理
-│  ├─ agents/                    # search / analyze / rag 相关 Agent 逻辑
-│  └─ agent_core/                # 模型、工具、CodeQuery、WebSearch 等底层能力
+│  ├─ agents/                    # Agent 逻辑以及 tools / CodeQuery / WebSearch
+│  └─ agent_core/                # 模型与 embedding 等底层能力
 └─ uv.lock                       # 锁定依赖
 ```
 

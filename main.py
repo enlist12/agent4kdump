@@ -17,9 +17,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm
 from kdump_analyze.kdump import KdumpAnalysis
-from agent_core.tools.codeQuery.codequery import create_cq_db, set_proj_path
-from agent_core.tools.gdbTools import getCrashReport, set_kdump_analysis_instance
-from agent_core.tools.fileTools import set_linux_path
+from agents.tools.codeQuery.codequery import create_cq_db, set_proj_path
+from agents.tools.gdbTools import getCrashReport, set_kdump_analysis_instance
+from agents.tools.fileTools import set_linux_path
 from contextlib import contextmanager
 from agents.search_agent import runSearchAgent, parse_search_results, KnownBugAnalysisResult
 from agents.analyze_agent import runAnalyzeAgent, RootCauseAnalysisResult

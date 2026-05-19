@@ -9,8 +9,8 @@ from langgraph.graph.message import add_messages
 from langgraph.types import Command
 
 from agent_core.model import MAX_RECURSION_DEPTH, get_model
-from agent_core.tools import CODEQUERY_TOOLS, CUSTOM_AGENT_TOOLS
-from agent_core.tools.commandTools import build_shell_middleware
+from agents.tools import CODEQUERY_TOOLS, CUSTOM_AGENT_TOOLS
+from agents.tools.commandTools import build_shell_middleware
 
 from .prompt import (
     ANALYSIS_PROMPT,
@@ -20,7 +20,6 @@ from .prompt import (
 )
 from .schemas import RootCauseAnalysisResult, TaintAnalysisObj, TaintStepResult
 from .taint_tree import MessageMemory, TaintTree, TaintTreeNode, TaintTreeRunner
-# TODO: 鍒犳帀閭ｄ簺sb鐨勯潤鎬佹柟娉曞拰杩囧鐨刾rompt銆?
 
 WARNING_PREFIX = "[workflow_warning]"
 
@@ -339,14 +338,14 @@ class AnalysisProcess:
 
     @staticmethod
     def _get_crash_report() -> str:
-        from agent_core.tools.gdbTools import getCrashReport
+        from agents.tools.gdbTools import getCrashReport
 
         report = getCrashReport.invoke({})
         return str(report)
 
     @staticmethod
     def _fixup_column(obj: TaintAnalysisObj) -> None:
-        from agent_core.tools.fileTools import read_file_by_line_number
+        from agents.tools.fileTools import read_file_by_line_number
 
         if obj.column is not None:
             return

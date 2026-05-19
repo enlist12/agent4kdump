@@ -9,6 +9,8 @@ test.py
 __pycache__/
 .gdb_history
 codequery
+!src/agents/tools/codeQuery/
+!src/agents/tools/codeQuery/**
 config.yaml
 cache
 agent_core/.env

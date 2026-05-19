@@ -14,7 +14,7 @@ class LinuxBackgroundCollector:
     def collect(self, profile: dict[str, Any]) -> list[dict[str, str]]:
         if "TAVILY_API_KEY" not in os.environ:
             return []
-        from agent_core.tools.WebSearch import fetch_webpage_content, web_search
+        from agents.tools.WebSearch import fetch_webpage_content, web_search
 
         snippets: list[dict[str, str]] = []
         for query in self._queries(profile)[:2]:
