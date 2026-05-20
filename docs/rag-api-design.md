@@ -28,7 +28,7 @@
 - 通用知识库平台抽象
 - 多阶段 retriever 类拆分
 - stage enum / stage dataclass
-- 沿用 `src/agent_core/embedding.py` 的旧实现
+- 沿用旧 embedding 实现
 
 ---
 
@@ -570,7 +570,7 @@ prompt 中必须明确包含以下使用规则：
 
 基于当前仓库状态，以下旧路径应从新设计中退出：
 
-- [embedding.py](/C:/Users/80163/Desktop/mdlBlackTool/agent4kdump/src/agent_core/embedding.py)
+- `embedding.py`
 - [main.py](/C:/Users/80163/Desktop/mdlBlackTool/agent4kdump/main.py) 中旧的 `EmbeddingModel` 初始化和 `build_index()` 流程
 - `enable_rag` 但只服务旧 embedding 方案的配置逻辑
 

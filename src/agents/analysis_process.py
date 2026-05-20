@@ -8,7 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import Command
 
-from agent_core.model import MAX_RECURSION_DEPTH, get_model
+from agents.utils.model import MAX_RECURSION_DEPTH, get_model
 from agents.tools import CODEQUERY_TOOLS, CUSTOM_AGENT_TOOLS
 from agents.tools.commandTools import build_shell_middleware
 
@@ -53,10 +53,6 @@ class AnalysisProcess:
         self._final_result: Optional[RootCauseAnalysisResult] = None
         self._last_crash_report: str = ""
         self._last_trace: Dict[str, Any] = {}
-        self._build_agents()
-        self._build_graph()
-
-    def _build_agents(self) -> None:
         tools = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
         middleware = build_shell_middleware()
         model = get_model()
@@ -82,7 +78,6 @@ class AnalysisProcess:
             response_format=RootCauseAnalysisResult,
         )
 
-    def _build_graph(self) -> None:
         graph_builder = StateGraph(State)
         graph_builder.add_node("start_debug", self._node_start_debug)
         graph_builder.add_node("object_analysis", self._node_object_analysis)
@@ -101,7 +96,27 @@ class AnalysisProcess:
                 "taint_tree_summary": "",
             }
         )
-        self._last_trace = self._build_trace(final_state)
+        messages = final_state.get("messages", [])
+        taint_objects = final_state.get("taint_object", [])
+        tool_calls: list[Dict[str, Any]] = []
+        for msg in messages:
+            msg_tool_calls = getattr(msg, "tool_calls", None)
+            if not msg_tool_calls:
+                continue
+            for call in msg_tool_calls:
+                tool_calls.append(
+                    {
+                        "name": call.get("name", ""),
+                        "args": call.get("args", {}),
+                    }
+                )
+        self._last_trace = {
+            "crash_report": self._last_crash_report,
+            "taint_chain": [item.model_dump() for item in taint_objects],
+            "tool_calls": tool_calls,
+            "last_node": final_state.get("last_node", ""),
+            "taint_tree_summary": final_state.get("taint_tree_summary", ""),
+        }
         return self._final_result
 
     def get_last_analysis_trace(self) -> Dict[str, Any]:
@@ -109,10 +124,14 @@ class AnalysisProcess:
         return dict(self._last_trace)
 
     def _node_start_debug(self, state: State) -> Command[Literal["object_analysis"]]:
-        crash_report = self._get_crash_report()
+        from agents.tools.gdbTools import getCrashReport
+
+        crash_report = str(getCrashReport.invoke({}))
         self._last_crash_report = crash_report
-        
-        rag_context = self.rag_context.strip() if self.rag_context and self.rag_context.strip() else ""
+
+        rag_context = (
+            self.rag_context.strip() if self.rag_context and self.rag_context.strip() else ""
+        )
         rag_section = (
             "\nAdditional RAG context is provided below.\n"
             "Treat it as auxiliary hints, not ground truth.\n"
@@ -178,10 +197,16 @@ class AnalysisProcess:
                 update={"last_node": "taint_analysis"},
             )
 
-        primary_path, update_messages, tree_summary = self._run_taint_tree(
-            current,
-            state["messages"],
+        runner = TaintTreeRunner(
+            max_taint_steps=self.max_taint_steps,
+            max_tree_nodes=self.max_tree_nodes,
+            max_branch_depth=self.max_branch_depth,
+            analyze_node=self._analyze_taint_node,
+            build_warning=self._warning_message,
+            prepare_next_obj=self._fixup_column,
+            join_text=self._join,
         )
+        primary_path, update_messages, tree_summary = runner.run(current, state["messages"])
         new_objects = primary_path[1:] if len(primary_path) > 1 else []
         return Command(
             goto="root_cause_analysis",
@@ -192,22 +217,6 @@ class AnalysisProcess:
                 "taint_tree_summary": tree_summary,
             },
         )
-
-    def _run_taint_tree(
-        self,
-        root_obj: TaintAnalysisObj,
-        messages: list[AnyMessage],
-    ) -> tuple[list[TaintAnalysisObj], list[AnyMessage], str]:
-        runner = TaintTreeRunner(
-            max_taint_steps=self.max_taint_steps,
-            max_tree_nodes=self.max_tree_nodes,
-            max_branch_depth=self.max_branch_depth,
-            analyze_node=self._analyze_taint_node,
-            build_warning=self._warning_message,
-            prepare_next_obj=self._fixup_column,
-            join_text=self._join,
-        )
-        return runner.run(root_obj, messages)
 
     def _analyze_taint_node(
         self,
@@ -220,7 +229,15 @@ class AnalysisProcess:
         current = node.taint_obj
         if current is None:
             return None, [], "Missing taint object"
-        branch_text = self._branch_prompt_text(node.branch) if node.branch else ""
+        branch_text = (
+            TAINT_ANALYSIS_PROMPT.branch(
+                condition=node.branch.condition,
+                assumption=node.branch.assumption,
+                reason=node.branch.reason,
+            )
+            if node.branch
+            else ""
+        )
         prompt = TAINT_ANALYSIS_PROMPT.history(
             step=len(tree.path_objects(node.node_id)),
             current_context=current.get_prompt(),
@@ -233,33 +250,40 @@ class AnalysisProcess:
             prompt,
         )
 
-    @staticmethod
-    def _branch_prompt_text(branch) -> str:
-        """Build the prompt text for a branch assumption."""
-        return TAINT_ANALYSIS_PROMPT.branch(
-            condition=branch.condition,
-            assumption=branch.assumption,
-            reason=branch.reason,
-        )
-
     def _node_root_cause_analysis(self, state: State) -> Command[Literal["__end__"]]:
         history = state.get("taint_object", [])
         tree_summary = state.get("taint_tree_summary", "")
-        warnings = self._collect_warnings(state.get("messages", []))
-        history_text = "\n".join(
-            f"Step {idx + 1}: {obj.get_prompt()}"
-            for idx, obj in enumerate(history)
-        ) or "No structured taint chain available."
+        warnings: list[str] = []
+        for message in state.get("messages", []):
+            content = str(getattr(message, "content", ""))
+            if content.startswith(WARNING_PREFIX):
+                warnings.append(content[len(WARNING_PREFIX) :].strip())
+        history_text = (
+            "\n".join(f"Step {idx + 1}: {obj.get_prompt()}" for idx, obj in enumerate(history))
+            or "No structured taint chain available."
+        )
         if tree_summary:
-            history_text = self._join(
-                history_text,
-                f"## Taint Tree Summary\n{tree_summary}",
-            ) or history_text
+            history_text = (
+                self._join(
+                    history_text,
+                    f"## Taint Tree Summary\n{tree_summary}",
+                )
+                or history_text
+            )
         root_result, delta_messages, warning = self._call_agent(
             self.root_agent,
             state["messages"],
             ROOT_CAUSE_ANALYSIS_PROMPT.input(
-                crash_report=self._extract_crash_report(state.get("messages", [])),
+                crash_report=next(
+                    (
+                        str(getattr(message, "content", ""))
+                        for message in state.get("messages", [])
+                        if str(getattr(message, "content", "")).startswith(
+                            "The kernel crash report is below."
+                        )
+                    ),
+                    "Crash report was not preserved in message state.",
+                ),
                 history=history_text,
                 warning_text="\n".join(f"- {item}" for item in warnings) or "- none",
             ),
@@ -268,9 +292,7 @@ class AnalysisProcess:
         if warning:
             warning_text = f"root_cause_analysis: {warning}"
             warnings.append(warning_text)
-            update_messages.append(
-                self._warning_message("root_cause_analysis", warning)
-            )
+            update_messages.append(self._warning_message("root_cause_analysis", warning))
         if root_result is None:
             raise RuntimeError(
                 "root_cause_analysis did not return a structured RootCauseAnalysisResult"
@@ -315,33 +337,9 @@ class AnalysisProcess:
         return HumanMessage(content=f"{WARNING_PREFIX} {step}: {warning}")
 
     @staticmethod
-    def _collect_warnings(messages: list[AnyMessage]) -> list[str]:
-        warnings: list[str] = []
-        for message in messages:
-            content = str(getattr(message, "content", ""))
-            if content.startswith(WARNING_PREFIX):
-                warnings.append(content[len(WARNING_PREFIX) :].strip())
-        return warnings
-
-    @staticmethod
-    def _extract_crash_report(messages: list[AnyMessage]) -> str:
-        for message in messages:
-            content = str(getattr(message, "content", ""))
-            if content.startswith("The kernel crash report is below."):
-                return content
-        return "Crash report was not preserved in message state."
-
-    @staticmethod
     def _join(*parts: str) -> Optional[str]:
         items = [part.strip() for part in parts if part and part.strip()]
         return " | ".join(items) if items else None
-
-    @staticmethod
-    def _get_crash_report() -> str:
-        from agents.tools.gdbTools import getCrashReport
-
-        report = getCrashReport.invoke({})
-        return str(report)
 
     @staticmethod
     def _fixup_column(obj: TaintAnalysisObj) -> None:
@@ -371,31 +369,3 @@ class AnalysisProcess:
         match = re.search(r"\b" + re.escape(obj.variable_name) + r"\b", line)
         if match:
             obj.column = len(line[: match.start()].encode("utf-16-le")) // 2 + 1
-
-    def _build_trace(self, final_state: Dict[str, Any]) -> Dict[str, Any]:
-        """Collect taint-chain and tool-call metadata for experience persistence."""
-        messages = final_state.get("messages", [])
-        taint_objects = final_state.get("taint_object", [])
-        tool_calls: list[Dict[str, Any]] = []
-
-        for msg in messages:
-            msg_tool_calls = getattr(msg, "tool_calls", None)
-            if not msg_tool_calls:
-                continue
-            for call in msg_tool_calls:
-                tool_calls.append(
-                    {
-                        "name": call.get("name", ""),
-                        "args": call.get("args", {}),
-                    }
-                )
-
-        taint_chain = [item.model_dump() for item in taint_objects]
-
-        return {
-            "crash_report": self._last_crash_report,
-            "taint_chain": taint_chain,
-            "tool_calls": tool_calls,
-            "last_node": final_state.get("last_node", ""),
-            "taint_tree_summary": final_state.get("taint_tree_summary", ""),
-        }

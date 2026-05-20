@@ -1,19 +1,17 @@
-import build
-
 from agents.search_prompt import COT_PROMPT, ENHANCE_PROMPT, SEARCH_PROMPT
-from agent_core.model import get_model,MAX_RECURSION_DEPTH
+from agents.utils.model import get_model, MAX_RECURSION_DEPTH
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from typing import Optional, List
-from pydantic import BaseModel, Field
 from agents.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from agents.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
 
-from .schemas import KnownBugAnalysisResult,SearchReviewResult
+from .schemas import KnownBugAnalysisResult, SearchReviewResult
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
+
 
 @tool
 def submit_known_bug_analysis(
@@ -21,12 +19,12 @@ def submit_known_bug_analysis(
     evidence: str,
     matched_url: Optional[List[str]] = None,
     extra_info: Optional[str] = None,
-    verification_details: Optional[str] = None
+    verification_details: Optional[str] = None,
 ):
     """
     Submit the final analysis result.
     Call this tool ONLY when you have completed Phase 4 self-verification.
-    
+
     Args:
         is_known_bug: True if match found (score ≥30/40 AND symptom match AND source is vulnerable), False otherwise. BINARY decision required.
         evidence: Complete explanation with 4-checkpoint analysis (Call Trace, Symptom, Patch, Falsification). If is_known_bug=True, MUST show source code is NOT patched.
@@ -39,9 +37,10 @@ def submit_known_bug_analysis(
         "evidence": evidence,
         "matched_url": matched_url,
         "extra_info": extra_info,
-        "verification_details": verification_details
+        "verification_details": verification_details,
     }
-    
+
+
 def parse_search_results(results: KnownBugAnalysisResult):
     """Parse the search results and return a structured response."""
     return results.model_dump()
@@ -49,15 +48,6 @@ def parse_search_results(results: KnownBugAnalysisResult):
 
 def _has_substantive_text(text: Optional[str], min_length: int = 50) -> bool:
     return bool(text and len(text.strip()) >= min_length)
-
-
-
-def _has_meaningful_query_history(result: KnownBugAnalysisResult) -> bool:
-    informative_queries = 0
-    for item in result.queries_tried:
-        if item.query.strip() and item.observed_result.strip():
-            informative_queries += 1
-    return informative_queries >= 3
 
 
 def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
@@ -81,25 +71,39 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
             return False, "No matched URLs provided for claimed known bug"
 
         if not _has_substantive_text(result.verification_details, min_length=30):
-            return False, "Verification details missing or too brief (need substantive Phase 4 self-check answers)"
+            return (
+                False,
+                "Verification details missing or too brief (need substantive Phase 4 self-check answers)",
+            )
 
         if not _has_substantive_text(result.evidence, min_length=30):
             return False, "Known-bug conclusion must include substantive evidence"
     else:
         # If claiming no match, must show sufficient search effort
-        if not _has_meaningful_query_history(result):
-            return False, "When reporting is_known_bug=False, must document several concrete search attempts in queries_tried"
+        informative_queries = sum(
+            1
+            for item in result.queries_tried
+            if item.query.strip() and item.observed_result.strip()
+        )
+        if informative_queries < 3:
+            return (
+                False,
+                "When reporting is_known_bug=False, must document several concrete search attempts in queries_tried",
+            )
 
         if not _has_substantive_text(result.evidence, min_length=30):
             return False, "Unknown-bug conclusion must include substantive evidence"
-    
+
     return True, "Result meets quality standards"
 
 
 def create_search_reviewer_agent():
     """Create a reviewer agent to cross-check initial search decision semantically."""
     llm = get_model()
-    reviewer_prompt = SEARCH_PROMPT + ENHANCE_PROMPT + """
+    reviewer_prompt = (
+        SEARCH_PROMPT
+        + ENHANCE_PROMPT
+        + """
 
 You are a SECOND-PASS reviewer.
 Your job is NOT to do fresh exhaustive search, but to verify whether the initial decision
@@ -113,6 +117,7 @@ Review rules:
 5. Check if patch-presence (patched/unpatched) verification is explicit when is_known_bug=True.
 6. Keep binary output and list missing checks if any.
 """
+    )
 
     return create_agent(
         model=llm,
@@ -126,7 +131,7 @@ Review rules:
 def create_search_agent():
     """Create the search agent with configured tools and prompts."""
     llm = get_model()
-    
+
     tools = SEARCH_AGENT_TOOLS
 
     agent_graph = create_agent(
@@ -136,21 +141,21 @@ def create_search_agent():
         system_prompt=SEARCH_PROMPT + ENHANCE_PROMPT,
         response_format=KnownBugAnalysisResult,
     )
-    
+
     return agent_graph
-    
+
 
 def runSearchAgent(max_retries: int = 2):
     """
     Run the search agent with retry mechanism.
-    
+
     Args:
         max_retries: Maximum number of retries if result quality is insufficient
     """
     agent = create_search_agent()
     reviewer = create_search_reviewer_agent()
     langfuse_handler = CallbackHandler()
-    
+
     for attempt in range(max_retries + 1):
         initial_input = {
             "messages": [
@@ -162,7 +167,7 @@ def runSearchAgent(max_retries: int = 2):
                 )
             ]
         }
-        
+
         if attempt > 0:
             # Add retry context
             retry_message = f"""
@@ -182,24 +187,24 @@ Your previous result did not meet quality standards. Please:
 Previous issue: {retry_reason}
 """
             initial_input["messages"].append(HumanMessage(content=retry_message))
-        
+
         result = agent.invoke(
-            initial_input, 
-            config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH}
+            initial_input,
+            config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH},
         )
-        
+
         # Extract the structured response
         if "structured_response" not in result:
             if attempt < max_retries:
                 retry_reason = "No structured response returned"
                 continue
             return None
-        
+
         structured_result = result["structured_response"]
-        
+
         # Verify result quality
         is_valid, reason = verify_result_quality(structured_result)
-        
+
         if not is_valid:
             print(f"[Search Agent] Attempt {attempt + 1} failed quality check: {reason}")
             if attempt < max_retries:
@@ -208,9 +213,13 @@ Previous issue: {retry_reason}
             else:
                 # After max retries, if still claiming known bug but low quality, downgrade to unknown
                 if structured_result.is_known_bug:
-                    print(f"[Search Agent] Max retries reached. Downgrading to 'unknown bug' due to insufficient verification.")
+                    print(
+                        f"[Search Agent] Max retries reached. Downgrading to 'unknown bug' due to insufficient verification."
+                    )
                     structured_result.is_known_bug = False
-                    structured_result.evidence = f"INSUFFICIENT VERIFICATION: {structured_result.evidence}"
+                    structured_result.evidence = (
+                        f"INSUFFICIENT VERIFICATION: {structured_result.evidence}"
+                    )
                     structured_result.extra_info = f"Quality check failed: {reason}"
                 return structured_result
 
@@ -230,33 +239,44 @@ Initial decision:
 
         review_result = reviewer.invoke(
             {"messages": [HumanMessage(content=review_prompt + COT_PROMPT)]},
-            config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH}
+            config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH},
         )
 
         if "structured_response" in review_result:
             review_struct = review_result["structured_response"]
-            reviewer_disagree = (
-                (not review_struct.agree_with_initial) or
-                (review_struct.final_is_known_bug != structured_result.is_known_bug)
+            reviewer_disagree = (not review_struct.agree_with_initial) or (
+                review_struct.final_is_known_bug != structured_result.is_known_bug
             )
 
             if reviewer_disagree:
                 review_reason = review_struct.review_reason
-                missing = ", ".join(review_struct.missing_checks) if review_struct.missing_checks else "none"
-                print(f"[Search Agent] Attempt {attempt + 1} reviewer disagreement: {review_reason}; missing_checks={missing}")
+                missing = (
+                    ", ".join(review_struct.missing_checks)
+                    if review_struct.missing_checks
+                    else "none"
+                )
+                print(
+                    f"[Search Agent] Attempt {attempt + 1} reviewer disagreement: {review_reason}; missing_checks={missing}"
+                )
                 if attempt < max_retries:
-                    retry_reason = f"Reviewer disagreement: {review_reason}; missing_checks={missing}"
+                    retry_reason = (
+                        f"Reviewer disagreement: {review_reason}; missing_checks={missing}"
+                    )
                     continue
 
                 # Conservative fallback after retries: prefer unknown instead of false known-bug claim
                 if structured_result.is_known_bug and not review_struct.final_is_known_bug:
                     structured_result.is_known_bug = False
                     structured_result.evidence = f"INSUFFICIENT VERIFICATION (reviewer disagreement): {structured_result.evidence}"
-                    structured_result.extra_info = f"Reviewer disagreement: {review_reason}; missing_checks={missing}"
+                    structured_result.extra_info = (
+                        f"Reviewer disagreement: {review_reason}; missing_checks={missing}"
+                    )
                 else:
-                    structured_result.extra_info = (structured_result.extra_info or "") + f" | Reviewer: {review_reason}; missing_checks={missing}"
+                    structured_result.extra_info = (
+                        structured_result.extra_info or ""
+                    ) + f" | Reviewer: {review_reason}; missing_checks={missing}"
                 return structured_result
 
         return structured_result
-    
+
     return None

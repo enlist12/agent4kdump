@@ -281,7 +281,7 @@ The old RAG implementation should be removed instead of adapted.
 
 Delete:
 
-- `src/agent_core/embedding.py`
+- old `embedding.py`
 - the old RAG initialization and index-building logic in `main.py`
 - any dependency on `EmbeddingModel`
 - any config usage that only existed for the old RAG path

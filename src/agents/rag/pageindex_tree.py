@@ -42,8 +42,14 @@ class PageIndexTreeRetriever:
             "corpus_hash": "",
             "corpus_path": self.base_dir / "history_corpus.md",
         }
-        self._bridge_pageindex_env()
-        self._ensure_state_file()
+        if not os.environ.get("OPENAI_API_KEY"):
+            fallback = os.environ.get("API_KEY") or os.environ.get("CHATGPT_API_KEY")
+            if fallback:
+                os.environ["OPENAI_API_KEY"] = fallback
+        if not os.environ.get("OPENAI_API_BASE") and os.environ.get("LLM_BASE_URL"):
+            os.environ["OPENAI_API_BASE"] = os.environ["LLM_BASE_URL"]
+        if not self.state_cache_path.exists():
+            self._save_state(dict(STATE_DEFAULT))
 
     def mark_corpus_state(self, corpus_info: dict[str, Any]) -> None:
         self._current_corpus_info = dict(corpus_info)
@@ -57,7 +63,9 @@ class PageIndexTreeRetriever:
             state.update(STATE_DEFAULT | {"last_sync_status": "no_history"})
         else:
             state["current_corpus_hash"] = current_hash
-            state["tree_cache_stale"] = not self.tree_cache_path.exists() or state.get("corpus_hash") != current_hash
+            state["tree_cache_stale"] = (
+                not self.tree_cache_path.exists() or state.get("corpus_hash") != current_hash
+            )
             if not state["tree_cache_stale"]:
                 state["last_sync_status"] = "cache_ready"
                 state["last_error"] = ""
@@ -76,11 +84,20 @@ class PageIndexTreeRetriever:
             self._save_state(state)
             return state
         if md_to_tree is None or ConfigLoader is None:
-            return self._save_status(state, "backend_missing", "PageIndex markdown backend is unavailable.")
+            return self._save_status(
+                state, "backend_missing", "PageIndex markdown backend is unavailable."
+            )
 
         current_hash = str(info.get("corpus_hash", ""))
         if self.tree_cache_path.exists() and state.get("corpus_hash") == current_hash:
-            state.update({"current_corpus_hash": current_hash, "tree_cache_stale": False, "last_sync_status": "cache_ready", "last_error": ""})
+            state.update(
+                {
+                    "current_corpus_hash": current_hash,
+                    "tree_cache_stale": False,
+                    "last_sync_status": "cache_ready",
+                    "last_error": "",
+                }
+            )
             self._save_state(state)
             return state
 
@@ -101,9 +118,13 @@ class PageIndexTreeRetriever:
             )
         except Exception as exc:
             self.logger.warning("PageIndex markdown tree generation failed: %s", exc)
-            return self._save_status(state, "local_backend_failed", f"PageIndex markdown tree generation failed: {exc}")
+            return self._save_status(
+                state, "local_backend_failed", f"PageIndex markdown tree generation failed: {exc}"
+            )
 
-        self.tree_cache_path.write_text(json.dumps(raw_tree, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.tree_cache_path.write_text(
+            json.dumps(raw_tree, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         state.update(
             {
                 "corpus_hash": current_hash,
@@ -121,27 +142,74 @@ class PageIndexTreeRetriever:
         if not self.tree_cache_path.exists():
             return []
         try:
-            normalized = self._normalize_tree(json.loads(self.tree_cache_path.read_text(encoding="utf-8")))
+            normalized = self._normalize_tree(
+                json.loads(self.tree_cache_path.read_text(encoding="utf-8"))
+            )
         except (OSError, json.JSONDecodeError) as exc:
             self.logger.warning("Failed to read tree cache: %s", exc)
             return []
 
-        ranked = self._rank_nodes(query, normalized)
+        ranked = sorted(
+            [(overlap_score(query, node), node) for node in normalized["nodes"].values()],
+            key=lambda item: item[0],
+            reverse=True,
+        )
         selected = [(score, node) for score, node in ranked if score > 0][:top_k]
-        self.logger.info("PageIndex tree lexical search selected node ids: %s", [node["node_id"] for _, node in selected])
-        return [
-            self._node_to_hit(query, node, rank, normalized)
-            for rank, (score, node) in enumerate(selected, 1)
-        ]
+        self.logger.info(
+            "PageIndex tree lexical search selected node ids: %s",
+            [node["node_id"] for _, node in selected],
+        )
+        hits: list[dict[str, Any]] = []
+        for rank, (score, node) in enumerate(selected, 1):
+            text = node.get("text", "")
+            summary = node.get("summary") or node.get("prefix_summary") or node.get("title") or text
+            current_id = node["node_id"]
+            case_id = ""
+            while current_id:
+                current_node = normalized["nodes"].get(current_id) or {}
+                match = CASE_ID_RE.search(
+                    " ".join(
+                        str(current_node.get(key, ""))
+                        for key in ["title", "summary", "prefix_summary", "text"]
+                    )
+                )
+                if match:
+                    case_id = match.group(0)
+                    break
+                current_id = current_node.get("parent_id")
+            hits.append(
+                {
+                    "case_id": case_id,
+                    "summary": shorten(summary, 500),
+                    "root_cause": "",
+                    "trigger_path": "",
+                    "case_signature": "",
+                    "reusable_playbook": [],
+                    "applicability": [],
+                    "non_applicability": [],
+                    "confidence": "reference",
+                    "score": max(1.0 - (rank - 1) * 0.1, 0.1) + score,
+                    "source": "pageindex_tree",
+                    "node_id": node["node_id"],
+                    "title": node.get("title", ""),
+                    "text": shorten(text, 800),
+                    "line_num": node.get("line_num"),
+                }
+            )
+        return hits
 
     def get_runtime_status(self, corpus_info: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         if corpus_info is not None:
             self._current_corpus_info = dict(corpus_info)
         state = self._load_state()
-        current_hash = str(self._current_corpus_info.get("corpus_hash", "")) or str(state.get("current_corpus_hash", ""))
+        current_hash = str(self._current_corpus_info.get("corpus_hash", "")) or str(
+            state.get("current_corpus_hash", "")
+        )
         has_history = bool(self._current_corpus_info.get("exists"))
         tree_exists = self.tree_cache_path.exists()
-        tree_stale = bool(has_history and (not tree_exists or state.get("corpus_hash") != current_hash))
+        tree_stale = bool(
+            has_history and (not tree_exists or state.get("corpus_hash") != current_hash)
+        )
         ready = bool(has_history and tree_exists and not tree_stale)
 
         fallback = ""
@@ -169,7 +237,15 @@ class PageIndexTreeRetriever:
         roots: list[str] = []
 
         def register(raw: dict[str, Any], parent_id: Optional[str]) -> str:
-            node_id = str(raw.get("node_id") or raw.get("id") or raw.get("uuid") or raw.get("key") or self._hash_node(raw))
+            node_id = str(
+                raw.get("node_id")
+                or raw.get("id")
+                or raw.get("uuid")
+                or raw.get("key")
+                or hashlib.md5(
+                    json.dumps(raw, sort_keys=True, ensure_ascii=False).encode("utf-8")
+                ).hexdigest()[:12]
+            )
             node = nodes.setdefault(
                 node_id,
                 {
@@ -178,7 +254,9 @@ class PageIndexTreeRetriever:
                     "summary": first_text(raw, ["summary", "abstract", "description"]),
                     "prefix_summary": first_text(raw, ["prefix_summary"]),
                     "text": first_text(raw, ["text", "content", "body", "markdown", "value"]),
-                    "line_num": raw.get("line_num") or raw.get("line") or (raw.get("metadata", {}) or {}).get("line_num"),
+                    "line_num": raw.get("line_num")
+                    or raw.get("line")
+                    or (raw.get("metadata", {}) or {}).get("line_num"),
                     "children": [],
                     "parent_id": parent_id,
                 },
@@ -200,68 +278,32 @@ class PageIndexTreeRetriever:
             elif isinstance(value, dict) and looks_like_node(value):
                 register(value, parent_id)
             elif isinstance(value, dict):
-                for key in ["structure", "tree", "root", "data", "result", "nodes", "children", "sections", "items"]:
+                for key in [
+                    "structure",
+                    "tree",
+                    "root",
+                    "data",
+                    "result",
+                    "nodes",
+                    "children",
+                    "sections",
+                    "items",
+                ]:
                     if key in value:
                         visit(value[key], parent_id)
 
         visit(raw_tree)
-        roots.extend(node_id for node_id, node in nodes.items() if node.get("parent_id") is None and node_id not in roots)
+        roots.extend(
+            node_id
+            for node_id, node in nodes.items()
+            if node.get("parent_id") is None and node_id not in roots
+        )
         return {"nodes": nodes, "root_ids": roots}
-
-    def _rank_nodes(self, query: str, normalized: dict[str, Any]) -> list[tuple[float, dict[str, Any]]]:
-        ranked = [(overlap_score(query, node), node) for node in normalized["nodes"].values()]
-        return sorted(ranked, key=lambda item: item[0], reverse=True)
-
-    def _node_to_hit(
-        self,
-        query: str,
-        node: dict[str, Any],
-        rank: int,
-        normalized: dict[str, Any],
-    ) -> dict[str, Any]:
-        text = node.get("text", "")
-        summary = node.get("summary") or node.get("prefix_summary") or node.get("title") or text
-        return {
-            "case_id": self._extract_case_id(node["node_id"], normalized),
-            "summary": shorten(summary, 500),
-            "root_cause": "",
-            "trigger_path": "",
-            "case_signature": "",
-            "reusable_playbook": [],
-            "applicability": [],
-            "non_applicability": [],
-            "confidence": "reference",
-            "score": max(1.0 - (rank - 1) * 0.1, 0.1) + overlap_score(query, node),
-            "source": "pageindex_tree",
-            "node_id": node["node_id"],
-            "title": node.get("title", ""),
-            "text": shorten(text, 800),
-            "line_num": node.get("line_num"),
-        }
-
-    @staticmethod
-    def _extract_case_id(node_id: str, normalized: dict[str, Any]) -> str:
-        current_id = node_id
-        while current_id:
-            node = normalized["nodes"].get(current_id) or {}
-            match = CASE_ID_RE.search(" ".join(str(node.get(key, "")) for key in ["title", "summary", "prefix_summary", "text"]))
-            if match:
-                return match.group(0)
-            current_id = node.get("parent_id")
-        return ""
-
-    @staticmethod
-    def _hash_node(node: dict[str, Any]) -> str:
-        return hashlib.md5(json.dumps(node, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
 
     def _save_status(self, state: dict[str, Any], status: str, error: str) -> dict[str, Any]:
         state.update({"tree_cache_stale": True, "last_sync_status": status, "last_error": error})
         self._save_state(state)
         return state
-
-    def _ensure_state_file(self) -> None:
-        if not self.state_cache_path.exists():
-            self._save_state(dict(STATE_DEFAULT))
 
     def _load_state(self) -> dict[str, Any]:
         try:
@@ -270,20 +312,27 @@ class PageIndexTreeRetriever:
             return dict(STATE_DEFAULT)
 
     def _save_state(self, state: dict[str, Any]) -> None:
-        self.state_cache_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    @staticmethod
-    def _bridge_pageindex_env() -> None:
-        if not os.environ.get("OPENAI_API_KEY"):
-            fallback = os.environ.get("API_KEY") or os.environ.get("CHATGPT_API_KEY")
-            if fallback:
-                os.environ["OPENAI_API_KEY"] = fallback
-        if not os.environ.get("OPENAI_API_BASE") and os.environ.get("LLM_BASE_URL"):
-            os.environ["OPENAI_API_BASE"] = os.environ["LLM_BASE_URL"]
+        self.state_cache_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
 
 def looks_like_node(value: dict[str, Any]) -> bool:
-    return any(key in value for key in ["node_id", "id", "uuid", "title", "heading", "text", "content", "summary", "children", "nodes"])
+    return any(
+        key in value
+        for key in [
+            "node_id",
+            "id",
+            "uuid",
+            "title",
+            "heading",
+            "text",
+            "content",
+            "summary",
+            "children",
+            "nodes",
+        ]
+    )
 
 
 def first_text(value: dict[str, Any], keys: list[str]) -> str:
@@ -300,8 +349,18 @@ def tokenize(text: str) -> list[str]:
 
 def overlap_score(query: str, node: dict[str, Any]) -> float:
     query_tokens = set(tokenize(query))
-    node_tokens = set(tokenize(" ".join(str(node.get(key, "")) for key in ["title", "summary", "prefix_summary", "text"])))
-    return len(query_tokens & node_tokens) / max(len(query_tokens), 1) if query_tokens and node_tokens else 0.0
+    node_tokens = set(
+        tokenize(
+            " ".join(
+                str(node.get(key, "")) for key in ["title", "summary", "prefix_summary", "text"]
+            )
+        )
+    )
+    return (
+        len(query_tokens & node_tokens) / max(len(query_tokens), 1)
+        if query_tokens and node_tokens
+        else 0.0
+    )
 
 
 def shorten(text: str, limit: int) -> str:

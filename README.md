@@ -31,9 +31,8 @@
 ├─ scripts/                      # 辅助脚本
 ├─ docs/                         # 设计文档、改造记录、变更日志
 ├─ src/
-│  ├─ kdump_analyze/             # kdump / gdb 封装与 crash report 处理
-│  ├─ agents/                    # Agent 逻辑以及 tools / CodeQuery / WebSearch
-│  └─ agent_core/                # 模型与 embedding 等底层能力
+│  └─ agents/                    # Agent 逻辑以及 tools / CodeQuery / WebSearch
+│     └─ utils/                  # 模型、kdump / gdb 封装等底层能力
 └─ uv.lock                       # 锁定依赖
 ```
 
@@ -74,10 +73,16 @@ uv sync
 
 ## 配置说明
 
-入口命令：
+入口命令默认读取当前目录的 `config.yaml`：
 
 ```bash
-python main.py --config config.yaml
+python main.py
+```
+
+如果要使用其它配置文件，再显式传入：
+
+```bash
+python main.py --config /path/to/config.yaml
 ```
 
 `config.yaml` 主要字段：
@@ -130,7 +135,7 @@ OPENAI_API_BASE=
 说明：
 
 - Search Agent 的网页检索依赖 `TAVILY_API_KEY`
-- `src/agent_core/model.py` 中的模型初始化依赖 `API_KEY`、`MODEL_NAME`、`MODEL_PROVIDER`
+- `src/agents/utils/model.py` 中的模型初始化依赖 `API_KEY`、`MODEL_NAME`、`MODEL_PROVIDER`
 - Langfuse 追踪默认按必填环境变量初始化，未配置时需要注意启动报错风险
 - 启用 PageIndex / RAG 时，可能还需要补充对应 API 配置
 
