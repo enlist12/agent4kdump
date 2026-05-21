@@ -11,6 +11,8 @@ __pycache__/
 codequery
 !src/agents/tools/codeQuery/
 !src/agents/tools/codeQuery/**
+src/agents/tools/codeQuery/**/__pycache__/
+src/agents/tools/codeQuery/**/*.py[cod]
 config.yaml
 cache
 agent_core/.env
