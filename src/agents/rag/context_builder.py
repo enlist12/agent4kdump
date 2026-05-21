@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import find_dotenv, load_dotenv
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from log import get_logger
+from agents.utils.model import get_model
 
 from .experience_store import ExperienceStore
 from .linux_background import LinuxBackgroundCollector
@@ -31,6 +33,7 @@ class AnalysisRAGManager:
             self.base_dir, self.logger, enabled=use_pageindex
         )
         self.linux_background = LinuxBackgroundCollector(self.logger)
+        self.background_summarizer = get_model()
         self.corpus_info = self.experience_store.build_history_corpus()
         self.pageindex_tree.mark_corpus_state(self.corpus_info)
         self.pageindex_tree.sync_history_tree(self.corpus_info)
@@ -141,6 +144,7 @@ class AnalysisRAGManager:
                 )
             experience_hits = sorted(scored, key=lambda item: item["score"], reverse=True)[:top_k]
         linux_background = self.linux_background.collect(profile)
+        background_summary = self._summarize_linux_background(profile, linux_background)
         experience = "\n\n".join(
             "\n".join(
                 [
@@ -159,20 +163,17 @@ class AnalysisRAGManager:
             )
             for idx, hit in enumerate(experience_hits, 1)
         )
-        background = "\n\n".join(
-            f"[{idx}] query={item['query']}\nurl={item['url']}\ncontent={item['content']}"
-            for idx, item in enumerate(linux_background, 1)
-        )
         return {
             "profile": profile,
             "query": query,
             "experience_hits": experience_hits,
             "linux_background": linux_background,
+            "linux_background_summary": background_summary,
             "context": (
                 "Section 1: Similar Case Signatures\n"
                 f"{experience or 'No historical experience retrieved.'}\n\n"
                 "Section 2: Linux Module Background\n"
-                f"{background or 'No extra Linux background was collected.'}\n\n"
+                f"{background_summary or 'No extra Linux background was collected.'}\n\n"
                 "Section 3: Non-Transferable / Mismatch Warnings\n"
                 "- Treat retrieved cases as workflow hints only; prove all conclusions in the current source.\n"
                 "- Do not reuse old root causes unless object, path, and state transition match.\n\n"
@@ -185,6 +186,64 @@ class AnalysisRAGManager:
                 f"- Crash excerpt used for retrieval: {shorten(crash_report.replace(chr(10), ' '), 600)}"
             ),
         }
+
+    def _summarize_linux_background(
+        self, profile: dict[str, Any], linux_background: list[dict[str, str]]
+    ) -> str:
+        if not linux_background:
+            return ""
+        profile_text = "\n".join(
+            [
+                f"bug_type={profile.get('bug_type', 'unknown')}",
+                f"kernel_version={profile.get('kernel_version', 'unknown')}",
+                f"driver_candidates={', '.join(profile.get('driver_candidates', [])[:3]) or 'none'}",
+                f"modules={', '.join(profile.get('modules', [])[:3]) or 'none'}",
+                f"functions={', '.join(profile.get('functions', [])[:4]) or 'none'}",
+            ]
+        )
+        background_text = "\n\n".join(
+            [
+                "\n".join(
+                    [
+                        f"[Source {idx}]",
+                        f"url={item.get('url', '')}",
+                        f"query={item.get('query', '')}",
+                        f"content={shorten(str(item.get('content', '')), 1200)}",
+                    ]
+                )
+                for idx, item in enumerate(linux_background[:3], 1)
+            ]
+        )
+        system_prompt = (
+            "You are summarizing Linux kernel subsystem background for crash root-cause analysis.\n"
+            "Your job is to compress retrieved web pages into short analysis aids.\n"
+            "Keep only information that helps understand subsystem behavior, function role, invariants, "
+            "or relevant historical patch/discussion context.\n"
+            "Do not infer the current crash root cause. Do not repeat generic kernel advice."
+        )
+        user_prompt = (
+            "Summarize the retrieved background into at most 4 bullet lines.\n"
+            "Each bullet must be short and source-anchored with `[S1]`, `[S2]`, or `[S3]`.\n"
+            "Prefer these categories when supported by the text: subsystem responsibilities, key function semantics, "
+            "important state/invariant expectations, historical patch or regression context.\n"
+            "If the sources are weak or noisy, say that briefly instead of guessing.\n\n"
+            f"Crash profile:\n{profile_text}\n\n"
+            f"Retrieved sources:\n{background_text}"
+        )
+        try:
+            response = self.background_summarizer.invoke(
+                [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+            )
+            content = getattr(response, "content", str(response)).strip()
+            return shorten(content, 900)
+        except Exception as exc:
+            self.logger.warning("background summarization failed: %s", exc)
+            fallback_lines = [
+                f"[S{idx}] {item.get('url', '')}"
+                for idx, item in enumerate(linux_background[:2], 1)
+                if item.get("url")
+            ]
+            return "\n".join(fallback_lines)
 
     def persist_success_case(
         self,
