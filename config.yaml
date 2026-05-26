@@ -1,6 +1,0 @@
-linux_path: ./kernel/linux
-gdb_path: gdb
-vmcore: ./vmcore
-kdump_server: /root/agent4kdump/kdump_analyze/kdump-gdbserver/kdump-gdbserver
-syzbot_data: ./data
-api_key: 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

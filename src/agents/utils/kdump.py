@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -38,6 +39,35 @@ class KdumpAnalysis:
         self._server: subprocess.Popen[str] | None = None
         self._gdb: GdbController | None = None
 
+    def _kdump_env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        server_path = Path(self.kdump_server).expanduser()
+        kdump_root: Path | None = None
+        if server_path.name == "kdump-gdbserver":
+            candidate = server_path.resolve().parents[1]
+            if candidate.name == "kdump_analyze":
+                kdump_root = candidate
+
+        if not kdump_root:
+            return env
+
+        pykdump = kdump_root / "pykdumpfile"
+        pybuilds = sorted(pykdump.glob("build/lib.*"))
+        python_paths = [str(path) for path in [pykdump, *pybuilds] if path.exists()]
+        lib_paths = [
+            kdump_root / "libkdumpfile/src/addrxlat/.libs",
+            kdump_root / "libkdumpfile/src/kdumpfile/.libs",
+        ]
+        if python_paths:
+            env["PYTHONPATH"] = ":".join([*python_paths, env.get("PYTHONPATH", "")]).rstrip(":")
+        existing_libs = [str(path) for path in lib_paths if path.exists()]
+        if existing_libs:
+            env["LD_LIBRARY_PATH"] = ":".join(
+                [*existing_libs, env.get("LD_LIBRARY_PATH", "")]
+            ).rstrip(":")
+            env["PATH"] = ":".join([*existing_libs, env.get("PATH", "")]).rstrip(":")
+        return env
+
     def loadKdump(self) -> None:
         """Start kdump-gdbserver if it is not already running."""
         if self._server and self._server.poll() is None:
@@ -60,6 +90,7 @@ class KdumpAnalysis:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=self._kdump_env(),
         )
         time.sleep(0.8)
         if self._server.poll() is not None:

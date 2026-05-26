@@ -1,5 +1,54 @@
 # agent4kdump
 
+## Client Build
+
+Linux client artifacts are built into the repository-root `dist/` directory.
+Run this from Linux or WSL:
+
+```bash
+./build-linux-wsl.sh
+```
+
+If the WSL/Linux host is missing Tauri system packages, run:
+
+```bash
+./build-linux-wsl.sh --install-system-deps
+```
+
+Expected outputs are `dist/agent4kdump-client-linux-x64`,
+`dist/agent4kdump-client-linux-x64.AppImage`, and
+`dist/agent4kdump-client-linux-x64.deb`.
+
+## Project Layout For GitHub
+
+Commit the source layout below. Local data, build outputs, dependency folders,
+and private config files are ignored.
+
+```text
+.
+|-- main.py                    # CLI entry point
+|-- log.py                     # logging setup
+|-- pyproject.toml             # Python project dependencies
+|-- config.example.yaml        # safe config template
+|-- .env.example               # safe environment template
+|-- build.sh                   # backend bundle helper
+|-- build-linux-wsl.sh         # Linux/WSL client bundle helper
+|-- agent4kdump-backend.spec   # PyInstaller backend spec
+|-- client/                    # complete desktop client
+|   |-- app/                   # React + Vite UI
+|   |-- backend/               # local FastAPI service used by the client
+|   |-- shared/                # API contract and shared docs
+|   |-- scripts/               # client build scripts
+|   `-- src-tauri/             # Tauri desktop shell
+|-- docs/                      # design notes and change logs
+|-- scripts/                   # legacy helper scripts
+`-- src/
+    `-- agents/                # agent workflow, tools, RAG, and kdump utils
+```
+
+Do not commit `.env` or `config.yaml`. Create local copies from
+`.env.example` and `config.example.yaml` when setting up a machine.
+
 `agent4kdump` 是一个面向 Linux kernel `vmcore` 场景的智能分析工具。它把
 `kdump-gdbserver`、`gdb`、代码检索工具和 LLM Agent 串起来，先判断崩溃是否属于
 已知 bug，再在需要时继续做根因分析，并可选接入 RAG 经验库提升复用能力。
@@ -89,9 +138,9 @@ python main.py --config /path/to/config.yaml
 
 ```yaml
 linux_path: ./kernel/linux
-gdb_path: gdb
+gdb_path: auto
 vmcore: ./vmcore
-kdump_server: /path/to/kdump-gdbserver
+kdump_server: auto
 syzbot_data: ./data
 enable_rag: false
 ```

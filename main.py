@@ -27,6 +27,76 @@ main_log = get_logger("Main")
 console = Console()
 
 
+def _is_path_like(value: str) -> bool:
+    return bool(
+        os.sep in value
+        or (os.altsep and os.altsep in value)
+        or Path(value).drive
+        or value.startswith("~")
+    )
+
+
+def _resource_roots(base_dir: Path) -> list[Path]:
+    roots: list[Path] = []
+    pyinstaller_root = getattr(sys, "_MEIPASS", None)
+    if pyinstaller_root:
+        roots.append(Path(pyinstaller_root).resolve())
+
+    configured_root = os.getenv("AGENT4KDUMP_ROOT")
+    if configured_root:
+        roots.append(Path(configured_root).expanduser().resolve())
+
+    roots.extend([base_dir.resolve(), Path(__file__).resolve().parent, Path.cwd().resolve()])
+
+    seen: set[Path] = set()
+    unique_roots: list[Path] = []
+    for root in roots:
+        if root not in seen:
+            seen.add(root)
+            unique_roots.append(root)
+    return unique_roots
+
+
+def _bundled_kdump_server(base_dir: Path) -> str | None:
+    for root in _resource_roots(base_dir):
+        candidate = root / "kdump_analyze" / "kdump-gdbserver" / "kdump-gdbserver"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def _resolve_command(value: str, *, base_dir: Path, candidates: list[str]) -> str:
+    raw = value.strip()
+    if raw and raw.lower() not in {"auto", "default"} and _is_path_like(raw):
+        value_path = Path(raw).expanduser()
+        if not value_path.is_absolute():
+            value_path = base_dir / value_path
+        return str(value_path.resolve())
+
+    probe: list[str] = []
+    if raw and raw.lower() not in {"auto", "default"}:
+        probe.append(raw)
+    probe.extend(candidates)
+
+    seen: set[str] = set()
+    for item in probe:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        if _is_path_like(item):
+            path_item = Path(item).expanduser()
+            if not path_item.is_absolute():
+                path_item = base_dir / path_item
+            if path_item.exists():
+                return str(path_item.resolve())
+        else:
+            found = shutil.which(item)
+            if found:
+                return str(Path(found).resolve())
+
+    return raw or (probe[0] if probe else "")
+
+
 @dataclass(slots=True)
 class AppConfig:
     config_path: Path | None
@@ -66,14 +136,10 @@ class AppConfig:
                 value_path = base_dir / value_path
             return value_path.resolve()
 
-        def cfg_command(name: str, default: str) -> str:
-            raw = str(data.get(name, default))
-            if os.sep in raw or (os.altsep and os.altsep in raw) or Path(raw).drive:
-                value_path = Path(raw).expanduser()
-                if not value_path.is_absolute():
-                    value_path = base_dir / value_path
-                return str(value_path.resolve())
-            return raw
+        def cfg_command(name: str, default: str, candidates: list[str]) -> str:
+            return _resolve_command(
+                str(data.get(name, default)), base_dir=base_dir, candidates=candidates
+            )
 
         kdump_args = data.get("kdump_args")
         if isinstance(kdump_args, str):
@@ -83,12 +149,23 @@ class AppConfig:
         ):
             raise ValueError("kdump_args must be a string list when provided.")
 
+        gdb_candidates = [
+            os.getenv("AGENT4KDUMP_GDB", ""),
+            os.getenv("GDB_PATH", ""),
+            "gdb",
+            "gdb-multiarch",
+        ]
+        kdump_candidates = [
+            _bundled_kdump_server(base_dir) or "",
+            "kdump-gdbserver",
+        ]
+
         return cls(
             config_path=loaded_path,
             linux_path=cfg_path("linux_path", "./kernel/linux"),
-            gdb_path=cfg_command("gdb_path", "gdb"),
+            gdb_path=cfg_command("gdb_path", "auto", gdb_candidates),
             vmcore=cfg_path("vmcore", "./vmcore"),
-            kdump_server=cfg_command("kdump_server", "kdump-gdbserver"),
+            kdump_server=cfg_command("kdump_server", "auto", kdump_candidates),
             enable_rag=bool(data.get("enable_rag", False)),
             build_codequery=bool(data.get("build_codequery", True)),
             rag_cache_dir=cfg_path("rag_cache_dir", "./cache/rag"),
@@ -109,7 +186,7 @@ class AppConfig:
             ("gdb executable", self.gdb_path),
             ("kdump-gdbserver executable", self.kdump_server),
         ]:
-            if os.sep in command or (os.altsep and os.altsep in command) or Path(command).drive:
+            if _is_path_like(command):
                 exists = Path(command).exists()
             else:
                 exists = shutil.which(command) is not None

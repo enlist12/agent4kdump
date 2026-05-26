@@ -1,30 +1,116 @@
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+config.yaml
+!config.example.yaml
+agent_core/.env
+
+# Python environments, caches, and test/build output
+.venv/
+venv/
+env/
+.uv-cache/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Node/frontend dependencies and build output
+node_modules/
+client/node_modules/
+client/app/node_modules/
+client/app/dist/
+client/app/*.tsbuildinfo
+client/build/
+client/dist/
+client/backend-dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Local npm scratch files at the repository root
+/package.json
+/package-lock.json
+
+# Rust/Tauri build output
+target/
+client/src-tauri/target/
+
+# PyInstaller and packaged application artifacts
+*.spec~
+*.manifest
+*.pyz
+*.pyzw
+
+# Runtime data, caches, generated indexes, and reports
+cache/
 data/
 db/
+case/
 image/
-kernel/
+temp/
+tmp/
+logs/
+*.log
+temp_report.txt
 
+# kdump/kernel local inputs and generated binaries
+kdump_analyze/
 vmcore
-test.py
-
-__pycache__/
-.gdb_history
+vmcore.*
+*.vmcore
+*.dmp
+*.dump
+*.core
+kernel/
+vmlinux
+vmlinux-*
+System.map
+System.map-*
+*.ko
+*.ko.*
 codequery
+codequery.exe
+scp.sh
+syzbotAgent/
+
+# Keep the in-repo codeQuery Python source available
 !src/agents/tools/codeQuery/
 !src/agents/tools/codeQuery/**
 src/agents/tools/codeQuery/**/__pycache__/
 src/agents/tools/codeQuery/**/*.py[cod]
-config.yaml
-cache
-agent_core/.env
-.env
-kdump_analyze/*
-!kdump_analyze/kdump.py
-scp.sh
-case/
-syzbotAgent/
 
-.codex
+# Legacy local client copies; the commit-ready client lives in client/.
+src/frontend/
+src/backend/
+
+# Editor, OS, and assistant-local files
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+.gdb_history
+.codex/
 AGENTS.md
-temp_report.txt
 .python-version
+
+# Project lockfiles generated from local resolver state
 uv.lock
