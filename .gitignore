@@ -29,13 +29,7 @@ pip-wheel-metadata/
 
 # Node/frontend dependencies and build output
 node_modules/
-client/node_modules/
-client/app/node_modules/
-client/app/dist/
-client/app/*.tsbuildinfo
-client/build/
-client/dist/
-client/backend-dist/
+client/*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
