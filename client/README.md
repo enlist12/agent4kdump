@@ -1,62 +1,26 @@
-# agent4kdump Complete Client
+# agent4kdump Client
 
-Complete desktop client for `agent4kdump`.
+Tauri desktop client for `agent4kdump`.
 
-The client contains:
+The client is distributed as a desktop application. It provides configuration validation, session management, `vmcore` upload, analysis execution and report viewing in one packaged workflow.
 
-- `app/`: React + Vite workstation UI
-- `backend/`: local FastAPI API service
-- `src-tauri/`: Tauri desktop shell
-- `scripts/`: Linux build scripts
+## Build
 
-## VMCore upload
-
-The New Session panel supports two vmcore input modes:
-
-- upload a local vmcore through `POST /api/uploads/vmcore`
-- type a server-side vmcore path directly
-
-Uploaded files are streamed to `cache/client_uploads/vmcore/<upload_id>/` and the returned path is used as `config.vmcore`.
-
-## API key configuration
-
-The Settings page writes allowlisted model/search/RAG keys into the local `.env`
-used by the backend. Values are masked when displayed back to the UI.
-
-The Settings page can also load an existing `.env` file. The selected path is
-persisted in `cache/client_settings.json`, and the backend reloads that file
-before config validation and analysis runs.
-
-Supported keys include:
-
-- `API_KEY`
-- `MODEL_NAME`
-- `MODEL_PROVIDER`
-- `LLM_BASE_URL`
-- `TAVILY_API_KEY`
-- `LANGFUSE_SECRET_KEY`
-- `LANGFUSE_PUBLIC_KEY`
-- `LANGFUSE_HOST`
-- `PAGEINDEX_API_KEY`
-- `OPENAI_API_KEY`
-- `OPENAI_API_BASE`
-- `DEEPSEEK_API_KEY`
-- `MODEL_TEMPERATURE`
-- `MAX_RECURSION_DEPTH`
-- `SHELL_TOOL_WORKSPACE_ROOT`
-
-## Linux build
-
-Run on Linux with Rust, Node.js, uv and the Tauri Linux system dependencies installed:
+Build on Linux or WSL:
 
 ```bash
-./build-linux-wsl.sh
+cd client
+npm install
+npm run build:linux
 ```
 
-Use `./build-linux-wsl.sh --install-system-deps` on Debian/Ubuntu/WSL if the
-native Tauri packages are not installed yet.
+Equivalent command from the repository root:
 
-Outputs:
+```bash
+bash client/scripts/build-linux.sh
+```
+
+The build script packages the local analysis runtime, builds the Tauri application and copies release artifacts to `dist/`:
 
 ```text
 dist/agent4kdump-client-linux-x64
@@ -64,12 +28,19 @@ dist/agent4kdump-client-linux-x64.AppImage
 dist/agent4kdump-client-linux-x64.deb
 ```
 
-Linux bundles cannot be produced reliably from the current Windows host because Tauri depends on native Linux WebKitGTK and packaging toolchains.
+## Requirements
 
-## Runtime
+- Linux or WSL
+- Node.js and npm
+- Rust and Cargo
+- `uv`
+- Tauri Linux native dependencies, including WebKitGTK, AppIndicator, OpenSSL and librsvg
 
-On startup, the Tauri shell tries this order:
+Linux desktop bundles are not expected to build reliably from a native Windows host because Tauri depends on Linux WebKitGTK and packaging toolchains.
 
-1. Connect to an existing `127.0.0.1:8000` API service.
-2. Start bundled `agent4kdump-backend`.
-3. Fall back to `uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000` when running from a development checkout.
+## Runtime Notes
+
+- `vmcore` can be selected by server-side path or uploaded through the desktop client.
+- Uploaded files are stored under `cache/client_uploads/vmcore/<upload_id>/`.
+- The Settings page can load or update the local `.env` used by analysis runs.
+- Supported keys include `API_KEY`, `MODEL_NAME`, `MODEL_PROVIDER`, `LLM_BASE_URL`, `TAVILY_API_KEY`, `LANGFUSE_*`, `PAGEINDEX_API_KEY`, `OPENAI_API_KEY` and `OPENAI_API_BASE`.
