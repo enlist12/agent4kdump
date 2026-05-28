@@ -1,168 +1,98 @@
 # agent4kdump
 
-## Client Build
+`agent4kdump` 是一个面向 Linux kernel `vmcore` 的智能分析工具。它会把
+`kdump-gdbserver`、`gdb`、内核源码检索、已知问题搜索和 LLM Agent 串起来，先判断
+crash 是否命中已知 bug，再在需要时进入根因分析。项目同时提供命令行入口和
+React + Tauri 桌面客户端。
 
-Linux client artifacts are built into the repository-root `dist/` directory.
-Run this from Linux or WSL:
+## 功能概览
 
-```bash
-./build-linux-wsl.sh
-```
+- 基于 `vmcore`、`vmlinux` 和 `kdump-gdbserver` 启动调试环境
+- 通过 GDB、CodeQuery、源码定位等工具提取 crash 上下文
+- 使用 Search Agent 检索 syzbot、CVE、patch、邮件列表等公开信息
+- 对未知问题运行 Analyze Agent，输出根因、触发路径、修复建议和关键证据
+- 可选启用 RAG / PageIndex，把历史分析经验注入后续分析
+- 桌面客户端支持会话管理、配置校验、vmcore 上传、运行分析和报告导出
 
-If the WSL/Linux host is missing Tauri system packages, run:
-
-```bash
-./build-linux-wsl.sh --install-system-deps
-```
-
-Expected outputs are `dist/agent4kdump-client-linux-x64`,
-`dist/agent4kdump-client-linux-x64.AppImage`, and
-`dist/agent4kdump-client-linux-x64.deb`.
-
-## Project Layout For GitHub
-
-Commit the source layout below. Local data, build outputs, dependency folders,
-and private config files are ignored.
-
-```text
-.
-|-- main.py                    # CLI entry point
-|-- log.py                     # logging setup
-|-- pyproject.toml             # Python project dependencies
-|-- config.example.yaml        # safe config template
-|-- .env.example               # safe environment template
-|-- build.sh                   # backend bundle helper
-|-- build-linux-wsl.sh         # Linux/WSL client bundle helper
-|-- agent4kdump-backend.spec   # PyInstaller backend spec
-|-- client/                    # complete desktop client
-|   |-- app/                   # React + Vite UI
-|   |-- backend/               # local FastAPI service used by the client
-|   |-- shared/                # API contract and shared docs
-|   |-- scripts/               # client build scripts
-|   `-- src-tauri/             # Tauri desktop shell
-|-- docs/                      # design notes and change logs
-|-- scripts/                   # legacy helper scripts
-`-- src/
-    `-- agents/                # agent workflow, tools, RAG, and kdump utils
-```
-
-Do not commit `.env` or `config.yaml`. Create local copies from
-`.env.example` and `config.example.yaml` when setting up a machine.
-
-`agent4kdump` 是一个面向 Linux kernel `vmcore` 场景的智能分析工具。它把
-`kdump-gdbserver`、`gdb`、代码检索工具和 LLM Agent 串起来，先判断崩溃是否属于
-已知 bug，再在需要时继续做根因分析，并可选接入 RAG 经验库提升复用能力。
-
-## 主要能力
-
-- 基于 `vmcore` + `vmlinux` 启动 `kdump-gdbserver` 与 `gdb/mi`
-- 提取和清洗 crash report，辅助定位调用栈与源码位置
-- 使用 Search Agent 检索 syzbot / CVE / patch / 邮件列表等公开信息
-- 对未知问题继续执行 Analyze Agent，输出根因、触发路径、修复建议和关键证据
-- 可选启用 RAG，把历史分析经验与 Linux 背景知识注入分析流程
-- 运行过程中提供结构化终端输出，便于人工复核
-
-## 分析流程
-
-1. 读取 `--config` 指定的配置文件
-2. 初始化 `kdump-gdbserver`、`gdb`、内核源码路径和 CodeQuery 数据库
-3. 运行 Search Agent，判断当前 crash 是否已知
-4. 如果不是已知问题，则运行 Analyze Agent 做根因分析
-5. 如果启用了 RAG，则在分析前检索上下文，并在成功后持久化经验
-
-## 目录结构
-
-```text
-.
-├─ main.py                       # 入口脚本
-├─ config.yaml                   # 本地运行配置示例
-├─ log.py                        # 日志初始化
-├─ scripts/                      # 辅助脚本
-├─ docs/                         # 设计文档、改造记录、变更日志
-├─ src/
-│  └─ agents/                    # Agent 逻辑以及 tools / CodeQuery / WebSearch
-│     └─ utils/                  # 模型、kdump / gdb 封装等底层能力
-└─ uv.lock                       # 锁定依赖
-```
 
 ## 运行环境
 
-推荐在 Linux 或 WSL 环境下运行。本项目虽然可以在 Windows 中编辑，但实际分析流程依赖
-Linux 调试工具链和 shell 命令。
+推荐在 Linux 或 WSL 中运行分析流程。Windows 可以用于编辑代码和部分前端开发，但真实
+`vmcore` 分析依赖 Linux 调试工具链。
 
-建议准备以下环境：
+必备环境：
 
 - Python 3.13+
-- `gdb`
+- `uv`
+- `gdb` 或 `gdb-multiarch`
 - `addr2line`
 - `cscope`
 - `ctags`
-- `cqmakedb` / `cqsearch`（CodeQuery）
+- CodeQuery：`cqmakedb`、`cqsearch`
 - 可执行的 `kdump-gdbserver`
-- 已编译好的 Linux 内核源码目录，至少包含：
-  - `vmlinux`
-  - `scripts/gdb/vmlinux-gdb.py`
+- Linux 内核源码目录，至少包含 `vmlinux`
 - 待分析的 `vmcore`
 
-## Python 依赖
+桌面客户端额外需要：
 
-项目根目录包含 `pyproject.toml` 和 `uv.lock`，建议优先使用 `uv` 安装：
+- Node.js + npm
+- Rust + Cargo
+- Tauri Linux 系统依赖，例如 WebKitGTK、AppIndicator、OpenSSL、librsvg 等
+
+内核源码建议先在源码根目录执行：
+
+```bash
+make V=1 scripts_gdb
+```
+
+这会生成/更新 `scripts/gdb/vmlinux-gdb.py` 等 GDB 辅助脚本。
+
+## 安装依赖
+
+1. 克隆项目后进入仓库根目录：
+
+```bash
+cd agent4kdump
+```
+
+2. 安装 Python 依赖：
 
 ```bash
 uv sync
 ```
 
-如果运行时报缺少包，请补齐当前代码实际依赖的常用库，例如：
-
-- `rich`
-- `pyyaml`
-- `python-dotenv`
-- `requests`
-- `beautifulsoup4`
-
-## 配置说明
-
-入口命令默认读取当前目录的 `config.yaml`：
+3. 如果需要运行桌面客户端，安装前端依赖：
 
 ```bash
-python main.py
+cd client
+npm install
+cd ..
 ```
 
-如果要使用其它配置文件，再显式传入：
+4. 准备 `kdump-gdbserver`。
+
+仓库当前包含 `kdump_analyze/kdump-gdbserver/kdump-gdbserver` 的本地运行路径。
+如果需要从源码重新构建，请参考 `kdump_analyze/kdump.md`，准备并编译：
+
+- `libkdumpfile`
+- `kdump-gdbserver`
+- `pykdumpfile`
+
+运行前可加载本地 kdump 运行库路径：
 
 ```bash
-python main.py --config /path/to/config.yaml
+source kdump_analyze/env.sh
 ```
 
-`config.yaml` 主要字段：
+## 配置环境变量
 
-```yaml
-linux_path: ./kernel/linux
-gdb_path: auto
-vmcore: ./vmcore
-kdump_server: auto
-syzbot_data: ./data
-enable_rag: false
+复制模板并填写自己的密钥：
+
+```bash
+cp .env.example .env
 ```
 
-字段说明：
-
-- `linux_path`：Linux 内核源码根目录
-- `gdb_path`：`gdb` 可执行文件路径，默认走系统 PATH
-- `vmcore`：待分析的 crash dump 文件
-- `kdump_server`：`kdump-gdbserver` 可执行文件路径
-- `syzbot_data`：本地 syzbot 相关数据目录
-- `enable_rag`：是否启用经验库 / PageIndex 检索
-
-注意：
-
-- 不要把真实 API Key 写进 `README.md`、仓库示例或提交记录
-- 当前代码中的模型配置主要从 `.env` 读取，`config.yaml` 更适合放本地路径类配置
-- 如果已有明文密钥文件，建议尽快改为本地私有 `.env`，并避免提交到版本库
-
-## `.env` 环境变量
-
-根据当前代码，常见环境变量如下：
+常用字段：
 
 ```dotenv
 API_KEY=your_llm_api_key
@@ -172,8 +102,8 @@ LLM_BASE_URL=
 
 TAVILY_API_KEY=your_tavily_key
 
-LANGFUSE_SECRET_KEY=your_langfuse_secret
-LANGFUSE_PUBLIC_KEY=your_langfuse_public
+LANGFUSE_SECRET_KEY=
+LANGFUSE_PUBLIC_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
 
 PAGEINDEX_API_KEY=
@@ -183,53 +113,185 @@ OPENAI_API_BASE=
 
 说明：
 
-- Search Agent 的网页检索依赖 `TAVILY_API_KEY`
-- `src/agents/utils/model.py` 中的模型初始化依赖 `API_KEY`、`MODEL_NAME`、`MODEL_PROVIDER`
-- Langfuse 追踪默认按必填环境变量初始化，未配置时需要注意启动报错风险
-- 启用 PageIndex / RAG 时，可能还需要补充对应 API 配置
+- `API_KEY`、`MODEL_NAME`、`MODEL_PROVIDER`、`LLM_BASE_URL` 用于初始化 LLM
+- `TAVILY_API_KEY` 用于 Search Agent 的网页检索
+- `LANGFUSE_*` 用于可选追踪
+- `PAGEINDEX_API_KEY`、`OPENAI_API_KEY`、`OPENAI_API_BASE` 用于可选 RAG / PageIndex 能力
 
-## 一次典型运行需要准备什么
+不要把真实 API Key 写入 README、示例配置或提交记录。
 
-在运行 `main.py` 前，请确认：
+## 配置分析参数
 
-- `linux_path` 指向正确的内核源码目录
-- `linux_path/vmlinux` 存在
-- `linux_path/scripts/gdb/vmlinux-gdb.py` 存在
-- `vmcore` 文件存在
-- `gdb`、`addr2line`、`kdump-gdbserver` 可执行
-- 如果需要已知漏洞检索，`.env` 中已配置 `TAVILY_API_KEY`
-- 如果需要 LLM 推理，`.env` 中已配置模型相关环境变量
+复制配置模板：
 
-## 输出结果
+```bash
+cp config.example.yaml config.yaml
+```
 
-程序会在终端打印：
+示例：
+
+```yaml
+linux_path: /path/to/linux
+gdb_path: auto
+vmcore: /path/to/vmcore
+kdump_server: auto
+syzbot_data: ./data
+enable_rag: false
+build_codequery: true
+rag_cache_dir: ./cache/rag
+kdump_host: 127.0.0.1
+kdump_port: 1234
+kdump_args: []
+```
+
+字段说明：
+
+- `linux_path`：Linux 内核源码根目录，目录下必须有 `vmlinux`
+- `gdb_path`：`gdb` 可执行文件路径；`auto` 会从环境变量和 `PATH` 中查找
+- `vmcore`：待分析的 crash dump 文件
+- `kdump_server`：`kdump-gdbserver` 路径；`auto` 会优先查找仓库内置路径和 `PATH`
+- `syzbot_data`：本地 syzbot 数据目录，保留给搜索增强使用
+- `enable_rag`：是否启用 RAG / PageIndex
+- `build_codequery`：初始化时是否构建 CodeQuery 数据库
+- `rag_cache_dir`：RAG 缓存目录
+- `kdump_host`、`kdump_port`：本地调试服务地址
+- `kdump_args`：传给 `kdump-gdbserver` 的额外参数
+
+## 命令行使用
+
+先做配置校验，不启动调试器：
+
+```bash
+uv run python main.py --dry-run
+```
+
+使用默认 `config.yaml` 运行完整分析：
+
+```bash
+uv run python main.py
+```
+
+指定配置文件：
+
+```bash
+uv run python main.py --config /path/to/config.yaml
+```
+
+打印配置后要求确认：
+
+```bash
+uv run python main.py --confirm
+```
+
+本次运行跳过 CodeQuery 构建：
+
+```bash
+uv run python main.py --no-codequery
+```
+
+典型输出包括：
 
 - 配置摘要
-- RAG / PageIndex 状态
+- PageIndex / RAG 状态
 - Known Bug Search Result
 - Root Cause Analysis Result
+- `root_cause`、`trigger_path`、`fix_suggestion`、`confidence`
+- crash 位置、关键源码位置、证据和验证 TODO
 
-如果 Search Agent 认定为已知问题，输出会包含候选指纹、查询记录、证据和匹配链接。
-如果进入根因分析阶段，输出会包含：
+## 桌面客户端使用
 
-- `root_cause`
-- `trigger_path`
-- `fix_suggestion`
-- `confidence`
-- `crash_site`
-- `key_locations`
-- `patch_sketch`
+开发模式需要同时启动后端 API 和前端页面。
 
-## `scripts/` 目录
+1. 启动本地 API：
 
-- `scripts/start.sh`：使用 QEMU 启动本地内核调试环境
-- `scripts/update.sh`：用 `pipreqs` 重新生成依赖清单
-- `scripts/requirements.txt`：脚本侧依赖记录
-- `scripts/README.md`：脚本目录说明
+```bash
+uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000
+```
 
-## `docs/` 目录
+2. 启动前端：
 
-`docs/` 下保存了较完整的设计与演进资料，建议优先阅读：
+```bash
+cd client
+npm run dev
+```
+
+然后访问 Vite 输出的本地地址，通常是 `http://127.0.0.1:5173`。
+
+客户端主要流程：
+
+- 在 Settings 中填写或加载 `.env`
+- 创建分析会话
+- 填写 `linux_path`、`vmcore`、`gdb_path`、`kdump_server` 等配置
+- 点击 Validate 校验配置
+- 点击 Run 启动分析
+- 查看事件流、结果摘要和 Markdown 报告
+
+vmcore 可以直接填写服务端路径，也可以通过客户端上传。上传文件会保存到：
+
+```text
+cache/client_uploads/vmcore/<upload_id>/
+```
+
+如果使用 Tauri 桌面模式：
+
+```bash
+cd client
+npm run desktop:dev
+```
+
+Tauri 启动时会优先连接 `127.0.0.1:8000`，如果没有现成 API 服务，会尝试启动打包后的后端；
+开发检出环境下也会回退到 `uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000`。
+
+## 构建客户端
+
+Linux / WSL 下构建桌面客户端：
+
+```bash
+cd client
+npm run build:linux
+```
+
+或直接执行：
+
+```bash
+bash client/scripts/build-linux.sh
+```
+
+构建产物会复制到仓库根目录 `dist/`，常见文件包括：
+
+```text
+dist/agent4kdump-client-linux-x64
+dist/agent4kdump-client-linux-x64.AppImage
+dist/agent4kdump-client-linux-x64.deb
+```
+
+如果缺少 Tauri Linux 系统依赖，请先按当前发行版安装 WebKitGTK、AppIndicator、OpenSSL、
+librsvg 等原生包后再构建。
+
+## 常见检查
+
+运行分析前建议确认：
+
+- `linux_path` 指向正确的内核源码根目录
+- `linux_path/vmlinux` 存在
+- `linux_path/scripts/gdb/vmlinux-gdb.py` 存在
+- `vmcore` 文件存在且当前用户可读
+- `gdb`、`addr2line`、`cscope`、`ctags`、`cqmakedb`、`cqsearch` 可执行
+- `kdump-gdbserver` 可执行
+- `.env` 中已配置可用的 LLM Key
+- 需要网页搜索时已配置 `TAVILY_API_KEY`
+- 需要 RAG / PageIndex 时已配置对应 API Key，并确认 `enable_rag: true`
+
+## 排错提示
+
+- 报 `Required runtime inputs are missing`：检查 `config.yaml` 中的路径和可执行文件
+- 找不到 `gdb`：把 `gdb_path` 改成绝对路径，或确保 `gdb` 在 `PATH` 中
+- 找不到 `kdump-gdbserver`：把 `kdump_server` 改成绝对路径，或执行 `source kdump_analyze/env.sh`
+- CodeQuery 首次构建慢：这是正常现象；临时跳过可用 `--no-codequery`
+- Search Agent 无法联网检索：检查 `TAVILY_API_KEY` 和网络环境
+- RAG 初始化失败：先把 `enable_rag` 改为 `false`，确认基础分析流程可运行后再启用
+
+## 参考文档
 
 - `docs/module_design/searchAgent.md`
 - `docs/module_design/analyzeAgent.md`
@@ -237,19 +299,4 @@ OPENAI_API_BASE=
 - `docs/search-analyze-rag-improvement-notes.md`
 - `docs/workflow-tree-api-design.md`
 - `docs/taint-analysis-tree-design.md`
-
-## 已知注意事项
-
-- 这是一个偏研究/工程验证性质的工具，依赖本地环境完整度较高
-- CodeQuery 建库阶段会扫描内核源码，首次运行可能较慢
-- RAG、PageIndex、Langfuse、Tavily 都属于可选增强能力，但配置不完整时可能影响启动
-- 当前项目更适合作为本地分析工作台，而不是开箱即用的通用产品
-
-## 建议的后续整理
-
-如果你准备继续维护这个仓库，建议下一步补齐：
-
-1. `config.example.yaml` 与 `.env.example`
-2. 更明确的依赖安装脚本
-3. 最小可运行示例目录
-4. 常见报错排查说明
+- `client/README.md`
