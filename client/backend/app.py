@@ -21,6 +21,7 @@ from .schemas import (
     UpdateEnvSettingsRequest,
     UploadVmcoreResponse,
     ValidateConfigResponse,
+    utc_now,
 )
 from .session_store import SessionStore
 from .env_settings import env_status, load_client_env, load_existing_env_file, write_env_values
@@ -170,6 +171,10 @@ def cancel_session(session_id: str) -> AnalysisSessionPayload:
     if session.status in {"created", "validating", "ready"}:
         session = store.update_session(session_id, status="cancelled")
         store.add_event(session_id, "session.cancelled")
+    elif session.status == "running":
+        runner.force_stop(session_id)
+        session = store.update_session(session_id, status="cancelled", finished_at=utc_now())
+        store.add_event(session_id, "session.cancelled")
     return session
 
 
@@ -192,14 +197,14 @@ async def session_events(session_id: str) -> StreamingResponse:
             events, offset = store.events_since(session_id, offset)
             for event in events:
                 payload = event.model_dump()
-                yield f"id: {event.id}\nevent: {event.type}\ndata: {json.dumps(payload)}\n\n"
+                yield f"id: {event.id}\ndata: {json.dumps(payload)}\n\n"
 
             session = store.get_session(session_id)
             if session and session.status in {"completed", "failed", "cancelled"}:
                 final_events, offset = store.events_since(session_id, offset)
                 for event in final_events:
                     payload = event.model_dump()
-                    yield f"id: {event.id}\nevent: {event.type}\ndata: {json.dumps(payload)}\n\n"
+                    yield f"id: {event.id}\ndata: {json.dumps(payload)}\n\n"
                 break
             await asyncio.sleep(1)
 

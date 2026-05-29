@@ -367,17 +367,21 @@ def render_pageindex_status(status: dict[str, Any]) -> None:
     print_kv("Fallback Reason", status.get("fallback_reason"))
 
 
-def run_full_analysis(session: AnalysisSession) -> dict[str, Any]:
+def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]:
     from agents.analyze_agent import RootCauseAnalysisResult, runAnalyzeAgent
     from agents.search_agent import KnownBugAnalysisResult, parse_search_results, runSearchAgent
     from agents.tools.gdbTools import getCrashReport
 
     main_log.info("Running search agent...")
+    if on_stage:
+        on_stage("known_bug_search", "starting")
     result = runSearchAgent()
     if not isinstance(result, KnownBugAnalysisResult):
         raise RuntimeError("Search agent did not return a KnownBugAnalysisResult.")
 
     parsed_search = parse_search_results(result)
+    if on_stage:
+        on_stage("known_bug_search", "completed")
     if parsed_search["is_known_bug"]:
         main_log.info("Known bug found: %s", parsed_search.get("matched_url"))
         return {"parsed_search": parsed_search, "parsed_analyze": None}
@@ -396,6 +400,7 @@ def run_full_analysis(session: AnalysisSession) -> dict[str, Any]:
     analyze_output = runAnalyzeAgent(
         rag_context=rag_context_text,
         return_trace=bool(session.config.enable_rag and session.rag_retriever),
+        on_stage=on_stage,
     )
     if isinstance(analyze_output, tuple):
         analyze_result, analyze_trace = analyze_output

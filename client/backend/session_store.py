@@ -113,3 +113,7 @@ class SessionStore:
         with self._lock:
             return session_id in self._cancelled
 
+    def reset_cancelled(self, session_id: str) -> None:
+        with self._lock:
+            self._cancelled.discard(session_id)
+

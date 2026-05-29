@@ -7,7 +7,8 @@ const labels: Record<string, string> = {
   known_bug_search: "Known Bug Search",
   taint_analysis: "Taint Analysis",
   root_cause: "Root Cause Eval",
-  report: "Report Generation"
+  report: "Report Generation",
+  rag: "RAG Index"
 };
 
 export function StageSidebar({ stages }: { stages: Record<string, StageStatus> }) {

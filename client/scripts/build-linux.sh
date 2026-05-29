@@ -11,22 +11,27 @@ mkdir -p "${DIST_DIR}" "${BACKEND_DIST}"
 command -v uv >/dev/null 2>&1 || { echo "uv is required for backend packaging." >&2; exit 1; }
 command -v npm >/dev/null 2>&1 || { echo "npm is required for frontend packaging." >&2; exit 1; }
 
+echo "Building kdump dependencies..."
+bash "${REPO_ROOT}/scripts/build-kdump-deps.sh"
+
 (
   cd "${REPO_ROOT}"
   chmod +x "${REPO_ROOT}/kdump_analyze/kdump-gdbserver/kdump-gdbserver" || true
-  uv run --with pyinstaller pyinstaller \
+  
+  # Determine the command to run PyInstaller
+  PYINSTALLER_CMD="pyinstaller"
+  if command -v uv >/dev/null 2>&1 && [[ -z "${CONDA_PREFIX:-}" ]]; then
+      echo "Using 'uv run' for PyInstaller..."
+      PYINSTALLER_CMD="uv run --with pyinstaller pyinstaller"
+  else
+      echo "Using local environment PyInstaller (Conda detected or uv missing)..."
+  fi
+
+  $PYINSTALLER_CMD \
     --noconfirm \
-    --onefile \
-    --name agent4kdump-backend \
-    --paths "${REPO_ROOT}" \
-    --collect-submodules src \
-    --collect-submodules agents \
-    --collect-submodules client \
-    --add-data "${REPO_ROOT}/kdump_analyze:kdump_analyze" \
-    --add-data "${REPO_ROOT}/.env:." \
     --distpath "${BACKEND_DIST}" \
     --workpath "${CLIENT_ROOT}/build/pyinstaller" \
-    "${CLIENT_ROOT}/backend/entry.py"
+    "${REPO_ROOT}/agent4kdump-backend.spec"
 )
 
 (

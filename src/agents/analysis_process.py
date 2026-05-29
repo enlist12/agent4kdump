@@ -1,5 +1,5 @@
 ﻿import re
-from typing import Annotated, Any, Dict, Literal, Optional, TypedDict
+from typing import Annotated, Any, Callable, Dict, Literal, Optional, TypedDict
 
 from langchain.agents import create_agent
 from langchain_core.messages import AnyMessage, HumanMessage
@@ -43,12 +43,14 @@ class AnalysisProcess:
         max_tree_nodes: int = 32,
         max_branch_depth: int = 4,
         rag_context: Optional[str] = None,
+        on_stage: Optional[Callable[[str, str], None]] = None,
     ) -> None:
         self.max_retries = max_retries
         self.max_taint_steps = max_taint_steps
         self.max_tree_nodes = max_tree_nodes
         self.max_branch_depth = max_branch_depth
         self.rag_context = rag_context
+        self.on_stage = on_stage
         self.callback = CallbackHandler()
         self._final_result: Optional[RootCauseAnalysisResult] = None
         self._last_crash_report: str = ""
@@ -178,6 +180,8 @@ class AnalysisProcess:
         self._fixup_column(taint_obj)
         update["taint_object"] = [taint_obj]
         next_node = "root_cause_analysis" if taint_obj.end else "taint_analysis"
+        if next_node == "taint_analysis" and self.on_stage:
+            self.on_stage("taint_analysis", "starting")
         return Command(goto=next_node, update=update)
 
     def _node_taint_analysis(
@@ -208,6 +212,8 @@ class AnalysisProcess:
         )
         primary_path, update_messages, tree_summary = runner.run(current, state["messages"])
         new_objects = primary_path[1:] if len(primary_path) > 1 else []
+        if self.on_stage:
+            self.on_stage("taint_analysis", "completed")
         return Command(
             goto="root_cause_analysis",
             update={
@@ -251,6 +257,8 @@ class AnalysisProcess:
         )
 
     def _node_root_cause_analysis(self, state: State) -> Command[Literal["__end__"]]:
+        if self.on_stage:
+            self.on_stage("root_cause", "starting")
         history = state.get("taint_object", [])
         tree_summary = state.get("taint_tree_summary", "")
         warnings: list[str] = []
@@ -305,6 +313,8 @@ class AnalysisProcess:
         if workflow_note:
             root_result.evidence.append(f"Workflow note: {workflow_note}")
         self._final_result = root_result
+        if self.on_stage:
+            self.on_stage("root_cause", "completed")
         return Command(
             goto=END,
             update={

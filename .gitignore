@@ -29,7 +29,6 @@ pip-wheel-metadata/
 
 # Node/frontend dependencies and build output
 node_modules/
-client/*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

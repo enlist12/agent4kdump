@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -34,7 +35,7 @@ class KdumpAnalysis:
         self.gdb_path = gdb_path
         self.host = host
         self.port = port
-        self.kdump_args = list(kdump_args or ["{vmcore}"])
+        self.kdump_args = list(kdump_args or ["-f", "{vmcore}","-p","{port}"])
         self.timeout = timeout
         self._server: subprocess.Popen[str] | None = None
         self._gdb: GdbController | None = None
@@ -68,10 +69,41 @@ class KdumpAnalysis:
             env["PATH"] = ":".join([*existing_libs, env.get("PATH", "")]).rstrip(":")
         return env
 
+    @staticmethod
+    def _free_port(port: int) -> None:
+        """Kill any process holding *port* by scanning /proc."""
+        import re
+        for pid_dir in Path("/proc").iterdir():
+            if not pid_dir.name.isdigit():
+                continue
+            try:
+                for entry in (pid_dir / "fd").iterdir():
+                    link = os.readlink(str(entry))
+                    m = re.search(r"socket:\[(\d+)\]", link)
+                    if not m:
+                        continue
+                    inode = m.group(1)
+                    with open(f"/proc/net/tcp") as f:
+                        for line in f:
+                            parts = line.split()
+                            if len(parts) < 10:
+                                continue
+                            if parts[9] == inode:
+                                local = parts[1]
+                                port_hex = local.split(":")[1]
+                                if int(port_hex, 16) == port:
+                                    os.kill(int(pid_dir.name), signal.SIGKILL)
+                                    return
+            except (OSError, FileNotFoundError):
+                continue
+
     def loadKdump(self) -> None:
         """Start kdump-gdbserver if it is not already running."""
         if self._server and self._server.poll() is None:
             return
+
+        self._free_port(self.port)
+        time.sleep(0.1)
 
         server_args = [
             arg.format(
@@ -91,6 +123,7 @@ class KdumpAnalysis:
             stderr=subprocess.PIPE,
             text=True,
             env=self._kdump_env(),
+            start_new_session=True,
         )
         time.sleep(0.8)
         if self._server.poll() is not None:
@@ -110,6 +143,8 @@ class KdumpAnalysis:
         self._gdb = GdbController(command=command)
         self._write("set pagination off")
         if self.gdb_script.exists():
+            gdb_py_dir = self.gdb_script.parent
+            self._write(f'python import sys; sys.path.insert(0, "{gdb_py_dir}")')
             self._write(f"source {self.gdb_script}")
         else:
             self.logger.warning("Linux gdb helper script not found: %s", self.gdb_script)
@@ -162,7 +197,7 @@ class KdumpAnalysis:
         return False, "\n".join(failures) or "No crash report output was produced."
 
     def stop(self) -> None:
-        """Stop GDB and kdump-gdbserver. Safe to call multiple times."""
+        """Stop GDB and kdump-gdbserver gracefully. Safe to call multiple times."""
         if self._gdb is not None:
             try:
                 self._gdb.exit()
@@ -176,8 +211,33 @@ class KdumpAnalysis:
                 try:
                     self._server.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-                    self._server.kill()
+                    try:
+                        os.killpg(self._server.pid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        self._server.kill()
             self._server = None
+
+    def force_stop(self) -> None:
+        """Kill GDB and kdump-gdbserver immediately (SIGKILL), then wait for port release."""
+        if self._gdb is not None:
+            try:
+                self._gdb.exit()
+            except Exception:
+                pass
+            self._gdb = None
+
+        if self._server is not None and self._server.poll() is None:
+            # Kill the entire process group to ensure no orphans keep the port
+            try:
+                os.killpg(self._server.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                self._server.kill()
+            try:
+                self._server.wait(timeout=2)
+            except Exception:
+                pass
+            self._server = None
+            time.sleep(0.3)
 
     def _write(self, command: str, *, strict: bool = False) -> list[dict[str, Any]]:
         if self._gdb is None:

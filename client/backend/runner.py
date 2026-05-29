@@ -17,6 +17,10 @@ from .schemas import (
 from .session_store import SessionStore
 
 
+class CancelledError(RuntimeError):
+    """Raised when the user cancels a running analysis."""
+
+
 RUNTIME_DIR = Path("cache/client_sessions")
 
 
@@ -123,10 +127,22 @@ class AnalysisRunner:
     def __init__(self, store: SessionStore) -> None:
         self.store = store
         self._threads: dict[str, threading.Thread] = {}
+        self._analyses: dict[str, Any] = {}  # session_id -> KdumpAnalysis
 
     def run(self, session_id: str, *, dry_run: bool = False) -> None:
+        # If a previous analysis is still alive, force-stop it first so
+        # the port is released and the old thread won't interfere.
         if session_id in self._threads and self._threads[session_id].is_alive():
-            raise RuntimeError("Session is already running.")
+            self.force_stop(session_id)
+            self._threads[session_id].join(timeout=1)
+        self.store.reset_cancelled(session_id)
+        self._threads.pop(session_id, None)
+        self.store.update_session(
+            session_id,
+            status="validating",
+            started_at=utc_now(),
+            error="",
+        )
         thread = threading.Thread(
             target=self._run_session,
             args=(session_id, dry_run),
@@ -136,6 +152,29 @@ class AnalysisRunner:
         self._threads[session_id] = thread
         thread.start()
 
+    def force_stop(self, session_id: str) -> None:
+        """Kill kdump-gdbserver and GDB immediately, releasing the port."""
+        analysis = self._analyses.pop(session_id, None)
+        if analysis is not None:
+            try:
+                analysis.kdump_analysis.force_stop()
+            except Exception:
+                pass
+
+    def _fail_session(self, session_id: str, message: str, stage: str) -> None:
+        self.store.update_session(
+            session_id,
+            status="failed",
+            error=message,
+            finished_at=utc_now(),
+        )
+        self.store.add_event(
+            session_id,
+            "error",
+            stage=stage,
+            payload={"message": message},
+        )
+
     def _run_session(self, session_id: str, dry_run: bool) -> None:
         from main import AppConfig, init_analysis, run_full_analysis
 
@@ -144,81 +183,101 @@ class AnalysisRunner:
         if session is None:
             return
 
-        self.store.update_session(
-            session_id,
-            status="validating",
-            started_at=utc_now(),
-            error="",
-        )
+        # --- Config validation ---
         self.store.add_event(session_id, "config.validation_started", stage="config")
-
         try:
             config_path = _config_file_for(session)
             app_config = AppConfig.load(config_path)
             app_config.validate()
-            config_summary = _app_config_summary(app_config)
-            self.store.add_event(
-                session_id,
-                "config.validated",
-                stage="config",
-                payload=config_summary,
-            )
+        except Exception as exc:
+            self._fail_session(session_id, str(exc), "config")
+            return
+        config_summary = _app_config_summary(app_config)
+        self.store.add_event(
+            session_id,
+            "config.validated",
+            stage="config",
+            payload=config_summary,
+        )
 
-            if dry_run:
-                results = SessionResultPayload(report_markdown="Dry run completed.")
-                self.store.update_session(
-                    session_id,
-                    status="completed",
-                    finished_at=utc_now(),
-                    results=results,
-                )
-                self.store.add_event(session_id, "session.completed", payload={"dry_run": True})
-                return
-
-            if self.store.is_cancelled(session_id):
-                self.store.update_session(session_id, status="cancelled", finished_at=utc_now())
-                self.store.add_event(session_id, "session.cancelled")
-                return
-
-            self.store.update_session(session_id, status="running")
-            self.store.add_event(session_id, "debugger.starting", stage="debugger")
-            analysis_session = init_analysis(str(config_path))
-            self.store.add_event(session_id, "debugger.started", stage="debugger")
-
-            if analysis_session.pageindex_status:
-                self.store.add_event(
-                    session_id,
-                    "rag.status",
-                    stage="rag",
-                    payload=analysis_session.pageindex_status,
-                )
-
-            self.store.add_event(session_id, "analysis.started", stage="analysis")
-            raw_results = run_full_analysis(analysis_session)
-            results = SessionResultPayload(
-                parsed_search=raw_results.get("parsed_search"),
-                parsed_analyze=raw_results.get("parsed_analyze"),
-                pageindex_status=analysis_session.pageindex_status,
-            )
-            completed = self.store.update_session(
+        if dry_run:
+            results = SessionResultPayload(report_markdown="Dry run completed.")
+            self.store.update_session(
                 session_id,
                 status="completed",
                 finished_at=utc_now(),
                 results=results,
             )
-            completed.results.report_markdown = build_report_markdown(completed)
-            self.store.update_session(session_id, results=completed.results)
-            self.store.add_event(session_id, "analysis.completed", stage="analysis")
-            self.store.add_event(session_id, "session.completed")
+            self.store.add_event(session_id, "session.completed", payload={"dry_run": True})
+            return
+
+        if self.store.is_cancelled(session_id):
+            self.store.update_session(session_id, status="cancelled", finished_at=utc_now())
+            self.store.add_event(session_id, "session.cancelled")
+            return
+
+        # --- Debugger init ---
+        self.store.update_session(session_id, status="running")
+        self.store.add_event(session_id, "debugger.starting", stage="debugger")
+        try:
+            analysis_session = init_analysis(str(config_path))
         except Exception as exc:
-            self.store.update_session(
-                session_id,
-                status="failed",
-                error=str(exc),
-                finished_at=utc_now(),
-            )
+            self._fail_session(session_id, str(exc), "debugger")
+            self._analyses.pop(session_id, None)
+            return
+        self._analyses[session_id] = analysis_session.kdump_analysis
+        self.store.add_event(session_id, "debugger.started", stage="debugger")
+
+        if analysis_session.pageindex_status:
             self.store.add_event(
                 session_id,
-                "error",
-                payload={"message": str(exc)},
+                "rag.status",
+                stage="rag",
+                payload=analysis_session.pageindex_status,
             )
+
+        # --- Analysis ---
+        def _emit_stage(stage: str, status: str) -> None:
+            if self.store.is_cancelled(session_id):
+                raise CancelledError("Analysis cancelled by user")
+            self.store.add_event(session_id, f"{stage}.{status}", stage=stage)
+
+        try:
+            raw_results = run_full_analysis(analysis_session, on_stage=_emit_stage)
+        except CancelledError:
+            # Only update status if we're still the current thread for this session.
+            # If the user already restarted, the new thread owns the session now.
+            if self._threads.get(session_id) is threading.current_thread():
+                self.store.update_session(session_id, status="cancelled", finished_at=utc_now())
+                self.store.add_event(session_id, "session.cancelled")
+            self._analyses.pop(session_id, None)
+            return
+        except Exception as exc:
+            if self._threads.get(session_id) is not threading.current_thread():
+                self._analyses.pop(session_id, None)
+                return
+            if self.store.is_cancelled(session_id):
+                self.store.update_session(session_id, status="cancelled", finished_at=utc_now())
+                self.store.add_event(session_id, "session.cancelled")
+            else:
+                self._fail_session(session_id, str(exc), "known_bug_search")
+            self._analyses.pop(session_id, None)
+            return
+        results = SessionResultPayload(
+            parsed_search=raw_results.get("parsed_search"),
+            parsed_analyze=raw_results.get("parsed_analyze"),
+            pageindex_status=analysis_session.pageindex_status,
+        )
+        completed = self.store.update_session(
+            session_id,
+            status="completed",
+            finished_at=utc_now(),
+            results=results,
+        )
+        # --- Report ---
+        self.store.add_event(session_id, "report.starting", stage="report")
+        completed.results.report_markdown = build_report_markdown(completed)
+        self.store.update_session(session_id, results=completed.results)
+        self.store.add_event(session_id, "report.completed", stage="report")
+        self.store.add_event(session_id, "session.completed")
+        self._analyses.pop(session_id, None)

@@ -8,8 +8,8 @@ import time
 
 cache_dir = "cache"
 proj_path = None
-CODEQUERY_COMMAND_TIMEOUT_SEC = 30
-CODEQUERY_BUILD_TIMEOUT_SEC = 180
+CODEQUERY_COMMAND_TIMEOUT_SEC = 60
+CODEQUERY_BUILD_TIMEOUT_SEC = 360
 
 
 def _extract_rel_path(line: str, project_path: str) -> list:

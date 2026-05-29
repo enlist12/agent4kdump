@@ -9,10 +9,10 @@ edition = "2021"
 rust-version = "1.70"
 
 [build-dependencies]
-tauri-build = { version = "1.5", features = [] }
+tauri-build = { version = "^1", features = [] }
 
 [dependencies]
-tauri = { version = "1.6", features = ["dialog-open", "shell-open"] }
+tauri = { version = "^1", features = ["dialog-open", "shell-open"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

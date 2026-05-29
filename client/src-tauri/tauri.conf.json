@@ -25,7 +25,7 @@
       "icon": ["icons/icon.ico"],
       "identifier": "com.agent4kdump.client",
       "targets": ["deb", "appimage"],
-      "resources": ["../backend-dist/*", "../../kdump_analyze", "../../.env"]
+      "resources": ["../backend-dist/*"]
     },
     "security": {
       "csp": null
