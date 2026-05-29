@@ -62,7 +62,8 @@ logs/
 temp_report.txt
 
 # kdump/kernel local inputs and generated binaries
-kdump_analyze/
+kdump_analyze/libkdumpfile/
+kdump_analyze/pykdumpfile/
 vmcore
 vmcore.*
 *.vmcore

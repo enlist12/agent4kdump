@@ -8,7 +8,7 @@
 实现：open->readline
 ## Gdb Command
 功能：读取Kdump和内核镜像信息等
-实现：kdump-gdbserver
+实现：[kdump-gdbserver](https://codeberg.org/ptesarik/kdump-gdbserver)
 ## Agent
 功能：Agent可以调用子Agent来完成指定任务，并能进行多轮对话。
 实现：create_agent

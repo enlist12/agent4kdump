@@ -14,7 +14,7 @@
   <a href="#installation"><img alt="uv" src="https://img.shields.io/badge/Package%20Manager-uv-4B32C3"></a>
   <a href="#desktop-client"><img alt="Tauri" src="https://img.shields.io/badge/Desktop-Tauri%20%2B%20React-24C8DB?logo=tauri&logoColor=white"></a>
   <a href="#requirements"><img alt="Platform" src="https://img.shields.io/badge/Platform-Linux%20%2F%20WSL-2EA44F?logo=linux&logoColor=white"></a>
-  <a href="#license"><img alt="License" src="https://img.shields.io/badge/License-MIT-blue"></a>
+  <a href="#license"><img alt="License" src="https://img.shields.io/badge/License-GPL%20v3-blue"></a>
 </p>
 
 <p align="center">
@@ -443,6 +443,18 @@ npm run build:web
 - 分析逻辑修改需要说明对 Search Agent、Analyze Agent 或 RAG 输出结构的影响。
 - 不要提交 `vmcore`、内核源码、缓存目录、依赖目录或构建产物。
 
+## Third-Party Dependencies
+
+This project builds on the following open-source components:
+
+| Component | Upstream | Role |
+| --- | --- | --- |
+| kdump-gdbserver | <https://codeberg.org/ptesarik/kdump-gdbserver> | GDB remote debug server for kernel vmcore inspection |
+| libkdumpfile | <https://codeberg.org/ptesarik/libkdumpfile> | Library for accessing kernel crash dump files |
+| pykdumpfile | <https://codeberg.org/ptesarik/pykdumpfile> | Python bindings for libkdumpfile |
+
+Build instructions for these components can be found in [kdump_analyze/kdump.md](kdump_analyze/kdump.md).
+
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
