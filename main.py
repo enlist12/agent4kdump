@@ -22,6 +22,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from log import get_logger
+from runtime_config import DEFAULT_RECURSION_LIMIT, set_runtime_config
 
 main_log = get_logger("Main")
 console = Console()
@@ -110,6 +111,7 @@ class AppConfig:
     kdump_host: str = "127.0.0.1"
     kdump_port: int = 1234
     kdump_args: list[str] | None = None
+    recursion_limit: int = DEFAULT_RECURSION_LIMIT
 
     @classmethod
     def load(cls, config_path: str | Path | None = None) -> "AppConfig":
@@ -172,9 +174,13 @@ class AppConfig:
             kdump_host=str(data.get("kdump_host", "127.0.0.1")),
             kdump_port=int(data.get("kdump_port", 1234)),
             kdump_args=kdump_args,
+            recursion_limit=int(data.get("recursion_limit", DEFAULT_RECURSION_LIMIT)),
         )
 
     def validate(self) -> None:
+        if self.recursion_limit <= 0:
+            raise ValueError("recursion_limit must be greater than 0")
+
         missing: list[str] = []
         if not self.linux_path.is_dir():
             missing.append(f"linux_path directory: {self.linux_path}")
@@ -285,6 +291,7 @@ def init_analysis(
     if build_codequery is not None:
         config.build_codequery = build_codequery
     config.validate()
+    set_runtime_config(recursion_limit=config.recursion_limit)
 
     from agents.tools.codeQuery.codequery import set_proj_path
     from agents.tools.fileTools import set_linux_path
@@ -354,6 +361,7 @@ def render_config_table(session: AnalysisSession) -> None:
     table.add_row("Kdump Target", f"{config.kdump_host}:{config.kdump_port}")
     table.add_row("CodeQuery Build", "Yes" if config.build_codequery else "No")
     table.add_row("RAG Enabled", "Yes" if config.enable_rag else "No")
+    table.add_row("Recursion Limit", str(config.recursion_limit))
     console.print(table)
 
 
@@ -375,9 +383,29 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
     main_log.info("Running search agent...")
     if on_stage:
         on_stage("known_bug_search", "starting")
-    result = runSearchAgent()
+    try:
+        result = runSearchAgent()
+    except Exception as exc:
+        main_log.warning(
+            "Search agent failed; continuing with root cause analysis without known-bug context: %s",
+            exc,
+        )
+        result = KnownBugAnalysisResult(
+            is_known_bug=False,
+            evidence=f"Known-bug search failed and was skipped: {exc}",
+            matched_url=[],
+            extra_info="Continuing with root cause analysis without known-bug context.",
+        )
     if not isinstance(result, KnownBugAnalysisResult):
-        raise RuntimeError("Search agent did not return a KnownBugAnalysisResult.")
+        main_log.warning(
+            "Search agent did not return a KnownBugAnalysisResult; continuing with root cause analysis."
+        )
+        result = KnownBugAnalysisResult(
+            is_known_bug=False,
+            evidence="Known-bug search returned no structured result and was skipped.",
+            matched_url=[],
+            extra_info="Continuing with root cause analysis without known-bug context.",
+        )
 
     parsed_search = parse_search_results(result)
     if on_stage:
@@ -392,10 +420,17 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
     crash_report_text = ""
 
     if session.config.enable_rag and session.rag_retriever:
-        crash_report_text = str(getCrashReport.invoke({}))
-        rag_payload = session.rag_retriever.build_pre_analysis_context(crash_report_text, top_k=3)
-        rag_context_text = rag_payload.get("context")
-        main_log.info("Built pre-analysis RAG context")
+        try:
+            crash_report_text = str(getCrashReport.invoke({}))
+            rag_payload = session.rag_retriever.build_pre_analysis_context(crash_report_text, top_k=3)
+            rag_context_text = rag_payload.get("context")
+            main_log.info("Built pre-analysis RAG context")
+        except Exception as exc:
+            main_log.warning(
+                "RAG context build failed; continuing without RAG context: %s", exc
+            )
+            rag_payload = None
+            rag_context_text = None
 
     analyze_output = runAnalyzeAgent(
         rag_context=rag_context_text,
@@ -413,14 +448,24 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
     parsed_analyze = analyze_result.model_dump()
     if session.config.enable_rag and session.rag_retriever:
         if not crash_report_text:
-            crash_report_text = str(getCrashReport.invoke({}))
-        case_id = session.rag_retriever.persist_success_case(
-            crash_report=crash_report_text,
-            analysis_result=parsed_analyze,
-            trace=analyze_trace,
-            retrieved_context=rag_payload,
-        )
-        main_log.info("Stored analysis experience as %s", case_id)
+            try:
+                crash_report_text = str(getCrashReport.invoke({}))
+            except Exception as exc:
+                main_log.warning(
+                    "Could not retrieve crash report for RAG persistence; continuing: %s",
+                    exc,
+                )
+        if crash_report_text:
+            try:
+                case_id = session.rag_retriever.persist_success_case(
+                    crash_report=crash_report_text,
+                    analysis_result=parsed_analyze,
+                    trace=analyze_trace,
+                    retrieved_context=rag_payload,
+                )
+                main_log.info("Stored analysis experience as %s", case_id)
+            except Exception as exc:
+                main_log.warning("Failed to persist RAG experience; continuing: %s", exc)
 
     return {"parsed_search": parsed_search, "parsed_analyze": parsed_analyze}
 

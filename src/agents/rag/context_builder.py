@@ -8,6 +8,7 @@ from dotenv import find_dotenv, load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from log import get_logger
+from runtime_config import get_invoke_config
 from agents.utils.model import get_model
 
 from .experience_store import ExperienceStore
@@ -232,7 +233,8 @@ class AnalysisRAGManager:
         )
         try:
             response = self.background_summarizer.invoke(
-                [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+                [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)],
+                config=get_invoke_config(),
             )
             content = getattr(response, "content", str(response)).strip()
             return shorten(content, 900)

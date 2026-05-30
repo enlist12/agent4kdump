@@ -6,3 +6,4 @@ syzbot_data: ./data
 enable_rag: false
 build_codequery: true
 rag_cache_dir: ./cache/rag
+recursion_limit: 300

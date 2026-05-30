@@ -41,7 +41,7 @@ pnpm-debug.log*
 
 # Rust/Tauri build output
 target/
-client/src-tauri/target/
+src/client/src-tauri/target/
 
 # PyInstaller and packaged application artifacts
 *.spec~
@@ -88,7 +88,7 @@ syzbotAgent/
 src/agents/tools/codeQuery/**/__pycache__/
 src/agents/tools/codeQuery/**/*.py[cod]
 
-# Legacy local client copies; the commit-ready client lives in client/.
+# Legacy local client copies; the commit-ready client lives in src/client/.
 src/frontend/
 src/backend/
 

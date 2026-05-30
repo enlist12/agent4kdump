@@ -1,12 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
+import sys
 from PyInstaller.utils.hooks import collect_submodules
 
 repo_root = Path.cwd()
+src_root = repo_root / 'src'
+if str(src_root) not in sys.path:
+    sys.path.insert(0, str(src_root))
 hiddenimports = []
 hiddenimports += collect_submodules('src')
 hiddenimports += collect_submodules('agents')
 hiddenimports += collect_submodules('client')
+hiddenimports.append('runtime_config')
 
 datas = [
     (str(repo_root / 'kdump_analyze'), 'kdump_analyze'),
@@ -16,8 +21,8 @@ if env_file.exists():
     datas.append((str(env_file), '.'))
 
 a = Analysis(
-    [str(repo_root / 'client' / 'backend' / 'entry.py')],
-    pathex=[str(repo_root)],
+    [str(repo_root / 'src' / 'client' / 'backend' / 'entry.py')],
+    pathex=[str(repo_root), str(repo_root / 'src')],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

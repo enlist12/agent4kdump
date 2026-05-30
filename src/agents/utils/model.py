@@ -7,8 +7,6 @@ from langchain_openai import ChatOpenAI
 
 load_dotenv(find_dotenv())
 
-MAX_RECURSION_DEPTH = int(os.getenv("MAX_RECURSION_DEPTH", "80"))
-
 
 def get_model() -> ChatOpenAI:
     """Create the chat model used by LangChain agents from environment variables."""

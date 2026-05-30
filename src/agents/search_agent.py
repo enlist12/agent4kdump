@@ -1,5 +1,6 @@
 from agents.search_prompt import COT_PROMPT, ENHANCE_PROMPT, SEARCH_PROMPT
-from agents.utils.model import get_model, MAX_RECURSION_DEPTH
+from agents.utils.model import get_model
+from runtime_config import get_invoke_config
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
@@ -190,7 +191,7 @@ Previous issue: {retry_reason}
 
         result = agent.invoke(
             initial_input,
-            config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH},
+            config=get_invoke_config(callbacks=[langfuse_handler]),
         )
 
         # Extract the structured response
@@ -239,7 +240,7 @@ Initial decision:
 
         review_result = reviewer.invoke(
             {"messages": [HumanMessage(content=review_prompt + COT_PROMPT)]},
-            config={"callbacks": [langfuse_handler], "recursion_limit": MAX_RECURSION_DEPTH},
+            config=get_invoke_config(callbacks=[langfuse_handler]),
         )
 
         if "structured_response" in review_result:

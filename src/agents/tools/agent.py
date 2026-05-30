@@ -3,7 +3,8 @@ from langchain.agents import create_agent
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.memory import MemorySaver
-from agents.utils.model import get_model, MAX_RECURSION_DEPTH
+from agents.utils.model import get_model
+from runtime_config import get_invoke_config
 from .commandTools import build_shell_middleware
 from .tool_timeout import timed_tool
 
@@ -74,11 +75,10 @@ def chat_with_sub_agent(
     try:
         response = agent.invoke(
             {"messages": [HumanMessage(content=message)]},
-            config={
-                "configurable": {"thread_id": str(agent_id)},
-                "callbacks": [CallbackHandler()],
-                "recursion_limit": MAX_RECURSION_DEPTH
-            }
+            config=get_invoke_config(
+                configurable={"thread_id": str(agent_id)},
+                callbacks=[CallbackHandler()],
+            ),
         )
 
         if isinstance(response, dict) and "messages" in response:

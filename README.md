@@ -246,6 +246,7 @@ rag_cache_dir: ./cache/rag
 kdump_host: 127.0.0.1
 kdump_port: 1234
 kdump_args: []
+recursion_limit: 300
 ```
 
 | 字段 | 默认值 | 说明 |
@@ -261,6 +262,7 @@ kdump_args: []
 | `kdump_host` | `127.0.0.1` | 本地 kdump 调试服务地址 |
 | `kdump_port` | `1234` | 本地 kdump 调试服务端口 |
 | `kdump_args` | `[]` | 传给 `kdump-gdbserver` 的额外参数 |
+| `recursion_limit` | `300` | LangGraph / Agent invoke recursion limit |
 
 ## CLI Usage
 
@@ -276,18 +278,18 @@ kdump_args: []
 
 桌面端由三部分组成：
 
-- `client/app/`：React + Vite 前端
-- `client/backend/`：本地 FastAPI 服务
-- `client/src-tauri/`：Tauri 桌面壳
+- `src/client/app/`：React + Vite 前端
+- `src/client/backend/`：本地 FastAPI 服务
+- `src/client/src-tauri/`：Tauri 桌面壳
 
 开发模式需要先启动 API，再启动前端：
 
 ```bash
-uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000
+PYTHONPATH=src uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000
 ```
 
 ```bash
-cd client
+cd src/client
 npm install
 npm run dev
 ```
@@ -312,25 +314,25 @@ cache/client_uploads/vmcore/<upload_id>/
 Tauri 桌面开发模式：
 
 ```bash
-cd client
+cd src/client
 npm run desktop:dev
 ```
 
-Tauri 启动时会优先连接 `127.0.0.1:8000`；如果没有现成 API 服务，会尝试启动打包后的后端；开发检出环境下也会回退到 `uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000`。
+Tauri 启动时会优先连接 `127.0.0.1:8000`；如果没有现成 API 服务，会尝试启动打包后的后端；开发检出环境下也会回退到 `PYTHONPATH=src uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000`。
 
 ## Build Client
 
 Linux / WSL 下构建桌面客户端：
 
 ```bash
-cd client
+cd src/client
 npm run build:linux
 ```
 
 等价方式：
 
 ```bash
-bash client/scripts/build-linux.sh
+bash src/client/scripts/build-linux.sh
 ```
 
 构建产物会复制到仓库根目录 `dist/`：
@@ -354,7 +356,7 @@ dist/agent4kdump-client-linux-x64.deb
 |-- config.example.yaml        # safe analysis config template
 |-- .env.example               # safe environment variable template
 |-- agent4kdump-backend.spec   # PyInstaller backend spec
-|-- client/                    # React + FastAPI + Tauri desktop client
+|-- src/client/                # React + FastAPI + Tauri desktop client
 |   |-- app/                   # React + Vite UI
 |   |-- backend/               # local FastAPI service
 |   |-- shared/                # shared contracts and docs
@@ -402,11 +404,11 @@ dist/agent4kdump-client-linux-x64.deb
 | CodeQuery 首次构建慢 | 首次索引内核源码是预期行为；临时跳过可用 `--no-codequery` |
 | Search Agent 无法联网检索 | 检查 `TAVILY_API_KEY` 和网络环境 |
 | RAG 初始化失败 | 先把 `enable_rag` 改为 `false`，确认基础分析流程可运行后再启用 |
-| 客户端无法连接后端 | 确认 `uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000` 正在运行 |
+| 客户端无法连接后端 | 确认 `PYTHONPATH=src uv run uvicorn client.backend.app:app --host 127.0.0.1 --port 8000` 正在运行 |
 
 ## Documentation
 
-- [client/README.md](client/README.md)
+- [src/client/README.md](src/client/README.md)
 - [docs/module_design/design.md](docs/module_design/design.md)
 - [docs/module_design/tools.md](docs/module_design/tools.md)
 - [docs/module_design/RAG.md](docs/module_design/RAG.md)
@@ -432,7 +434,7 @@ uv run python main.py --dry-run
 涉及桌面客户端时，建议额外执行：
 
 ```bash
-cd client
+cd src/client
 npm run build:web
 ```
 

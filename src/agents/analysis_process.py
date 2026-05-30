@@ -8,7 +8,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import Command
 
-from agents.utils.model import MAX_RECURSION_DEPTH, get_model
+from agents.utils.model import get_model
+from runtime_config import get_invoke_config
 from agents.tools import CODEQUERY_TOOLS, CUSTOM_AGENT_TOOLS
 from agents.tools.commandTools import build_shell_middleware
 
@@ -96,7 +97,8 @@ class AnalysisProcess:
                 "taint_object": [],
                 "last_node": "",
                 "taint_tree_summary": "",
-            }
+            },
+            get_invoke_config(),
         )
         messages = final_state.get("messages", [])
         taint_objects = final_state.get("taint_object", [])
@@ -333,10 +335,7 @@ class AnalysisProcess:
         current = list(base_messages) + [HumanMessage(content=prompt)]
         result = agent.invoke(
             {"messages": current},
-            config={
-                "callbacks": [self.callback],
-                "recursion_limit": MAX_RECURSION_DEPTH,
-            },
+            config=get_invoke_config(callbacks=[self.callback]),
         )
         result_messages = result.get("messages", current)
         delta_messages = result_messages[len(base_messages) :]
