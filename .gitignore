@@ -4,8 +4,8 @@
 !.env.example
 config.yaml
 !config.example.yaml
-agent_core/.env
-
+node_modules/
+**/.env
 # Python environments, caches, and test/build output
 .venv/
 venv/

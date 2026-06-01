@@ -335,12 +335,12 @@ npm run build:linux
 bash src/client/scripts/build-linux.sh
 ```
 
-构建产物会复制到仓库根目录 `dist/`：
+构建产物会统一写入仓库根目录 `build/client/`，最终发行文件会复制到 `build/client/release/`：
 
 ```text
-dist/agent4kdump-client-linux-x64
-dist/agent4kdump-client-linux-x64.AppImage
-dist/agent4kdump-client-linux-x64.deb
+build/client/release/agent4kdump-client-linux-x64
+build/client/release/agent4kdump-client-linux-x64.AppImage
+build/client/release/agent4kdump-client-linux-x64.deb
 ```
 
 如果构建失败，优先检查 Tauri 原生依赖、Rust toolchain、Node.js、npm 和 `uv`。
@@ -421,7 +421,7 @@ dist/agent4kdump-client-linux-x64.deb
 - 不要提交真实 `.env`、API Key、私有 `vmcore`、客户内核源码或内部 crash 报告。
 - `vmcore` 可能包含敏感内存内容，上传、缓存和报告导出前应先确认脱敏策略。
 - LLM / Search / RAG 供应商可能接收分析上下文，生产使用前应确认数据边界。
-- `cache/`、`dist/`、`.venv/`、`node_modules/`、本地配置和构建产物不应进入版本库。
+- `cache/`、`build/`、`.venv/`、`node_modules/`、本地配置和构建产物不应进入版本库。
 
 ## Contributing
 

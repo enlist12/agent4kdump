@@ -1,0 +1,45 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build:web",
+    "devPath": "http://localhost:5173",
+    "distDir": "../../../build/client/web"
+  },
+  "package": {
+    "productName": "agent4kdump-client",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "dialog": {
+        "open": true
+      },
+      "shell": {
+        "open": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "DeveloperTool",
+      "icon": ["icons/icon.ico"],
+      "identifier": "com.agent4kdump.client",
+      "targets": ["deb", "appimage"],
+      "resources": ["../../../build/client/backend-dist/*"]
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "agent4kdump Client",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1180,
+        "minHeight": 720,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  }
+}
