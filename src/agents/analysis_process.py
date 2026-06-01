@@ -9,7 +9,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import Command
 
 from agents.utils.model import get_model
-from runtime_config import get_invoke_config
+from .runtime_config import get_invoke_config
 from agents.tools import CODEQUERY_TOOLS, CUSTOM_AGENT_TOOLS
 from agents.tools.commandTools import build_shell_middleware
 

@@ -144,9 +144,8 @@ class KnownBugAnalysisResult(BaseModel):
         default=None,
         description="The matched CVE URLs or Syzbot URLs or other relevant URLs if is_known_bug is True",
     )
-    crash_fingerprint: Optional[CrashFingerprint] = Field(
-        default=None,
-        description="Structured crash signature used to drive the search strategy",
+    crash_fingerprint: CrashFingerprint = Field(
+        description="Required structured crash signature used to drive the search strategy. Must always be included in the final output.",
     )
     queries_tried: List[SearchQueryRecord] = Field(
         default_factory=list,

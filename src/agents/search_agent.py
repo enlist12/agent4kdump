@@ -1,6 +1,6 @@
 from agents.search_prompt import COT_PROMPT, ENHANCE_PROMPT, SEARCH_PROMPT
 from agents.utils.model import get_model
-from runtime_config import get_invoke_config
+from .runtime_config import get_invoke_config
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
@@ -53,9 +53,6 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
     Returns: (is_valid, reason)
     """
     fingerprint = result.crash_fingerprint
-    if fingerprint is None:
-        return False, "Missing crash_fingerprint"
-
     if not fingerprint.crash_function or not fingerprint.fault_type:
         return False, "crash_fingerprint must include at least crash_function and fault_type"
 
@@ -163,8 +160,9 @@ RETRY ATTEMPT {attempt}/{max_retries}
 Your previous result did not meet quality standards. Please:
 1. Reuse the crash fingerprint and useful prior search context from this thread.
 2. Address the specific issue below instead of restarting from scratch.
-3. If claiming a match (is_known_bug=True), ensure the linked public evidence clearly matches the crash signature.
-4. If evidence is weak or ambiguous, return is_known_bug=False.
+3. Your final structured output MUST include crash_fingerprint again, even if it already appeared earlier in this thread.
+4. If claiming a match (is_known_bug=True), ensure the linked public evidence clearly matches the crash signature.
+5. If evidence is weak or ambiguous, return is_known_bug=False.
 
 Previous issue: {retry_reason}
 """

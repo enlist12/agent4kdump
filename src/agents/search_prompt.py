@@ -12,6 +12,7 @@ Workflow:
    - crash function
    - 2-4 meaningful frames near the crash
    - 1-2 title candidates if they can be inferred
+   - include this crash_fingerprint in the final output
 
 2. Use the fingerprint to search efficiently:
    - Prefer high-signal queries first

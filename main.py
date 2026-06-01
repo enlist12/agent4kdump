@@ -22,7 +22,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from log import get_logger
-from runtime_config import DEFAULT_RECURSION_LIMIT, set_runtime_config
+from agents.runtime_config import DEFAULT_RECURSION_LIMIT, set_runtime_config
 
 main_log = get_logger("Main")
 console = Console()
