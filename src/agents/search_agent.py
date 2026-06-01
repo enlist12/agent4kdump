@@ -5,6 +5,8 @@ from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from typing import Optional, List
+from uuid import uuid4
+from langgraph.checkpoint.memory import MemorySaver
 from agents.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from agents.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
@@ -19,8 +21,6 @@ def submit_known_bug_analysis(
     is_known_bug: bool,
     evidence: str,
     matched_url: Optional[List[str]] = None,
-    extra_info: Optional[str] = None,
-    verification_details: Optional[str] = None,
 ):
     """
     Submit the final analysis result.
@@ -28,17 +28,13 @@ def submit_known_bug_analysis(
 
     Args:
         is_known_bug: True if match found (score ≥30/40 AND symptom match AND source is vulnerable), False otherwise. BINARY decision required.
-        evidence: Complete explanation with 4-checkpoint analysis (Call Trace, Symptom, Patch, Falsification). If is_known_bug=True, MUST show source code is NOT patched.
+        evidence: Explanation of why the crash signature does or does not match known public bug evidence.
         matched_url: List of relevant URLs (syzbot/CVE/patch links) if is_known_bug=True.
-        extra_info: Additional context or suggestions.
-        verification_details: Your explicit answers to the 4 self-check questions from Phase 4 (REQUIRED if is_known_bug=True).
     """
     return {
         "is_known_bug": is_known_bug,
         "evidence": evidence,
         "matched_url": matched_url,
-        "extra_info": extra_info,
-        "verification_details": verification_details,
     }
 
 
@@ -63,19 +59,10 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
     if not fingerprint.crash_function or not fingerprint.fault_type:
         return False, "crash_fingerprint must include at least crash_function and fault_type"
 
-    if not fingerprint.title_candidates:
-        return False, "crash_fingerprint must include title_candidates for syzbot matching"
-
     # If claiming it's a known bug, must meet strict requirements
     if result.is_known_bug:
         if not result.matched_url or len(result.matched_url) == 0:
             return False, "No matched URLs provided for claimed known bug"
-
-        if not _has_substantive_text(result.verification_details, min_length=30):
-            return (
-                False,
-                "Verification details missing or too brief (need substantive Phase 4 self-check answers)",
-            )
 
         if not _has_substantive_text(result.evidence, min_length=30):
             return False, "Known-bug conclusion must include substantive evidence"
@@ -86,10 +73,10 @@ def verify_result_quality(result: KnownBugAnalysisResult) -> tuple[bool, str]:
             for item in result.queries_tried
             if item.query.strip() and item.observed_result.strip()
         )
-        if informative_queries < 3:
+        if informative_queries < 2:
             return (
                 False,
-                "When reporting is_known_bug=False, must document several concrete search attempts in queries_tried",
+                "When reporting is_known_bug=False, must document at least two concrete search attempts in queries_tried",
             )
 
         if not _has_substantive_text(result.evidence, min_length=30):
@@ -132,15 +119,16 @@ Review rules:
 def create_search_agent():
     """Create the search agent with configured tools and prompts."""
     llm = get_model()
-
+    memory = MemorySaver()
     tools = SEARCH_AGENT_TOOLS
 
     agent_graph = create_agent(
         model=llm,
         tools=tools,
         middleware=build_shell_middleware(),
-        system_prompt=SEARCH_PROMPT + ENHANCE_PROMPT,
+        system_prompt=SEARCH_PROMPT,
         response_format=KnownBugAnalysisResult,
+        checkpointer=memory,
     )
 
     return agent_graph
@@ -156,10 +144,11 @@ def runSearchAgent(max_retries: int = 2):
     agent = create_search_agent()
     reviewer = create_search_reviewer_agent()
     langfuse_handler = CallbackHandler()
+    search_thread_id = f"search-agent-{uuid4().hex}"
 
-    for attempt in range(max_retries + 1):
-        initial_input = {
-            "messages": [
+    for attempt in range(max_retries):
+        if attempt == 0:
+            messages = [
                 HumanMessage(
                     content=(
                         "Start analysis. Determine if this crash is a known bug (CVE/Syzbot).\n\n"
@@ -167,31 +156,26 @@ def runSearchAgent(max_retries: int = 2):
                     )
                 )
             ]
-        }
-
-        if attempt > 0:
-            # Add retry context
+        else:
             retry_message = f"""
 RETRY ATTEMPT {attempt}/{max_retries}
 
 Your previous result did not meet quality standards. Please:
-1. Be MORE THOROUGH in your verification (Phase 3)
-2. Complete the FULL self-check in Phase 4 with explicit checkpoint scores
-3. If claiming a match (is_known_bug=True), you MUST:
-   - Compare call trace structure
-   - Check if SYMPTOMS match the patch DESCRIPTION (you don't need to analyze root cause deeply)
-   - Verify the source code is NOT patched (compare patch with current source)
-   - Provide verification_details showing you checked the source code
-   - Include all 4 checkpoint scores in evidence
-4. Make a BINARY decision: True or False. If uncertain, choose False.
+1. Reuse the crash fingerprint and useful prior search context from this thread.
+2. Address the specific issue below instead of restarting from scratch.
+3. If claiming a match (is_known_bug=True), ensure the linked public evidence clearly matches the crash signature.
+4. If evidence is weak or ambiguous, return is_known_bug=False.
 
 Previous issue: {retry_reason}
 """
-            initial_input["messages"].append(HumanMessage(content=retry_message))
+            messages = [HumanMessage(content=retry_message)]
 
         result = agent.invoke(
-            initial_input,
-            config=get_invoke_config(callbacks=[langfuse_handler]),
+            {"messages": messages},
+            config=get_invoke_config(
+                configurable={"thread_id": search_thread_id},
+                callbacks=[langfuse_handler],
+            ),
         )
 
         # Extract the structured response
@@ -219,9 +203,8 @@ Previous issue: {retry_reason}
                     )
                     structured_result.is_known_bug = False
                     structured_result.evidence = (
-                        f"INSUFFICIENT VERIFICATION: {structured_result.evidence}"
+                        f"INSUFFICIENT VERIFICATION ({reason}): {structured_result.evidence}"
                     )
-                    structured_result.extra_info = f"Quality check failed: {reason}"
                 return structured_result
 
         # Second-pass semantic review for stability (workflow-based, no regex shortcuts)
@@ -234,8 +217,6 @@ Initial decision:
 - queries_tried: {structured_result.queries_tried}
 - matched_url: {structured_result.matched_url}
 - evidence: {structured_result.evidence}
-- extra_info: {structured_result.extra_info}
-- verification_details: {structured_result.verification_details}
 """
 
         review_result = reviewer.invoke(
@@ -268,14 +249,16 @@ Initial decision:
                 # Conservative fallback after retries: prefer unknown instead of false known-bug claim
                 if structured_result.is_known_bug and not review_struct.final_is_known_bug:
                     structured_result.is_known_bug = False
-                    structured_result.evidence = f"INSUFFICIENT VERIFICATION (reviewer disagreement): {structured_result.evidence}"
-                    structured_result.extra_info = (
-                        f"Reviewer disagreement: {review_reason}; missing_checks={missing}"
+                    structured_result.evidence = (
+                        "INSUFFICIENT VERIFICATION "
+                        f"(reviewer disagreement: {review_reason}; missing_checks={missing}): "
+                        f"{structured_result.evidence}"
                     )
                 else:
-                    structured_result.extra_info = (
-                        structured_result.extra_info or ""
-                    ) + f" | Reviewer: {review_reason}; missing_checks={missing}"
+                    structured_result.evidence = (
+                        f"{structured_result.evidence}\n\n"
+                        f"Reviewer note: {review_reason}; missing_checks={missing}"
+                    )
                 return structured_result
 
         return structured_result

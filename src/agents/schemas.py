@@ -111,10 +111,6 @@ class CrashFingerprint(BaseModel):
         default_factory=list,
         description="Top semantic frames near the crash site",
     )
-    source_path: Optional[str] = Field(
-        default=None,
-        description="Best-effort source path such as fs/jfs/jfs_imap.c",
-    )
     title_candidates: List[str] = Field(
         default_factory=list,
         description="Exact or normalized title candidates for syzbot matching",
@@ -142,18 +138,11 @@ class KnownBugAnalysisResult(BaseModel):
         description="True if the crash matches a known CVE or Syzbot bug, False otherwise. BINARY decision only - no ambiguity."
     )
     evidence: str = Field(
-        description="The evidence supporting the conclusion. MUST include 4-checkpoint verification (Call Trace, Symptom Match, Patch Verification, Falsification) if is_known_bug=True"
+        description="The evidence supporting the conclusion. If is_known_bug=True, explain why the crash signature matches the linked public bug evidence."
     )
     matched_url: Optional[List[str]] = Field(
         default=None,
         description="The matched CVE URLs or Syzbot URLs or other relevant URLs if is_known_bug is True",
-    )
-    extra_info: Optional[str] = Field(
-        default=None, description="Any additional information or context"
-    )
-    verification_details: Optional[str] = Field(
-        default=None,
-        description="Your explicit self-check answers from Phase 4 (REQUIRED if is_known_bug=True)",
     )
     crash_fingerprint: Optional[CrashFingerprint] = Field(
         default=None,
