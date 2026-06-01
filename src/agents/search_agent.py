@@ -2,7 +2,6 @@ from agents.search_prompt import COT_PROMPT, ENHANCE_PROMPT, SEARCH_PROMPT
 from agents.utils.model import get_model
 from .runtime_config import get_invoke_config
 from langchain.agents import create_agent
-from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from typing import Optional, List
 from uuid import uuid4
@@ -14,29 +13,6 @@ from langfuse.langchain import CallbackHandler
 from .schemas import KnownBugAnalysisResult, SearchReviewResult
 
 SEARCH_AGENT_TOOLS = list(CUSTOM_AGENT_TOOLS.values()) + list(CODEQUERY_TOOLS.values())
-
-
-@tool
-def submit_known_bug_analysis(
-    is_known_bug: bool,
-    evidence: str,
-    matched_url: Optional[List[str]] = None,
-):
-    """
-    Submit the final analysis result.
-    Call this tool ONLY when you have completed Phase 4 self-verification.
-
-    Args:
-        is_known_bug: True if match found (score ≥30/40 AND symptom match AND source is vulnerable), False otherwise. BINARY decision required.
-        evidence: Explanation of why the crash signature does or does not match known public bug evidence.
-        matched_url: List of relevant URLs (syzbot/CVE/patch links) if is_known_bug=True.
-    """
-    return {
-        "is_known_bug": is_known_bug,
-        "evidence": evidence,
-        "matched_url": matched_url,
-    }
-
 
 def parse_search_results(results: KnownBugAnalysisResult):
     """Parse the search results and return a structured response."""

@@ -352,17 +352,18 @@ class AnalysisProcess:
 
     @staticmethod
     def _fixup_column(obj: TaintAnalysisObj) -> None:
-        from agents.tools.fileTools import read_file_by_line_number
+        from agents.tools.fileTools import read_source
 
         if obj.column is not None:
             return
         try:
             context = str(
-                read_file_by_line_number.invoke(
+                read_source.invoke(
                     {
                         "file_path": obj.file_name,
                         "line_number": obj.line,
                         "line_range": 0,
+                        "mode": "snippet",
                     }
                 )
             )

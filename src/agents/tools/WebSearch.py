@@ -14,8 +14,8 @@ load_dotenv(find_dotenv())
 def web_search(
     query: Annotated[str, "The search query. Construct freely based on your analysis - no fixed format required."],
     max_results: Annotated[int, "Maximum number of results to return"] = 5,
-    search_depth: Annotated[str, "Search depth: 'basic' (fast) or 'advanced' (deeper, recommended for technical queries)"] = "advanced",
-    include_domains: Annotated[list[str], "List of domains to prioritize, e.g. ['syzkaller.appspot.com', 'nvd.nist.gov', 'lore.kernel.org']. Empty list means no restriction."] = [],
+    search_depth: Annotated[str, "Search depth: 'basic' (fast) or 'advanced' (deeper, recommended for technical queries)"] = "basic",
+    include_domains: Annotated[list[str], "List of domains to prioritize, e.g. ['syzkaller.appspot.com', 'nvd.nist.gov', 'lore.kernel.org']. Empty list means no restriction."] = None,
 ) -> Annotated[str, "Search results from the web"]:
     """
     Search the web for information related to kernel bugs, CVEs, patches, and technical documentation using Tavily.
@@ -77,7 +77,7 @@ def web_search(
 @timed_tool(timeout_seconds=20)
 def fetch_webpage_content(
     url: Annotated[str, "The URL of the webpage to fetch"],
-    max_length: Annotated[int, "Maximum character length of content to return"] = 5000,
+    max_length: Annotated[int, "Maximum character length of content to return"] = 3000,
 ) -> Annotated[str, "Content extracted from the webpage"]:
     """
     Fetch and extract the main text content from a webpage.

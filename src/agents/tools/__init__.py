@@ -29,15 +29,9 @@ getCrashReport = _load(
     "getCrashReport",
     lambda: __import__("agents.tools.gdbTools", fromlist=["getCrashReport"]).getCrashReport,
 )
-read_file = _load(
-    "read_file",
-    lambda: __import__("agents.tools.fileTools", fromlist=["read_file"]).read_file,
-)
-read_file_by_line_number = _load(
-    "read_file_by_line_number",
-    lambda: __import__(
-        "agents.tools.fileTools", fromlist=["read_file_by_line_number"]
-    ).read_file_by_line_number,
+read_source = _load(
+    "read_source",
+    lambda: __import__("agents.tools.fileTools", fromlist=["read_source"]).read_source,
 )
 read_config = _load(
     "read_config",
@@ -53,21 +47,13 @@ fetch_webpage_content = _load(
         "agents.tools.WebSearch", fromlist=["fetch_webpage_content"]
     ).fetch_webpage_content,
 )
-create_sub_agent = _load(
-    "create_sub_agent",
-    lambda: __import__("agents.tools.agent", fromlist=["create_sub_agent"]).create_sub_agent,
+manage_sub_agent = _load(
+    "manage_sub_agent",
+    lambda: __import__("agents.tools.agent", fromlist=["manage_sub_agent"]).manage_sub_agent,
 )
-chat_with_sub_agent = _load(
-    "chat_with_sub_agent",
-    lambda: __import__("agents.tools.agent", fromlist=["chat_with_sub_agent"]).chat_with_sub_agent,
-)
-list_sub_agents = _load(
-    "list_sub_agents",
-    lambda: __import__("agents.tools.agent", fromlist=["list_sub_agents"]).list_sub_agents,
-)
-remove_sub_agent = _load(
-    "remove_sub_agent",
-    lambda: __import__("agents.tools.agent", fromlist=["remove_sub_agent"]).remove_sub_agent,
+message_sub_agent = _load(
+    "message_sub_agent",
+    lambda: __import__("agents.tools.agent", fromlist=["message_sub_agent"]).message_sub_agent,
 )
 
 try:
@@ -77,14 +63,11 @@ except Exception:
 
 CUSTOM_AGENT_TOOLS = {
     "Execute a GDB command to analyze kernel dump (vmcore) via kdump-gdbserver": execute_gdb_command,
-    "Read the content of a file at the specified path": read_file,
-    "Read the context content of a specified line number in a file": read_file_by_line_number,
+    "Read kernel source as a focused snippet or full file when necessary": read_source,
     "Search the web for information related to kernel bugs, CVEs, patches, and technical documentation": web_search,
     "Fetch and extract the main text content from a webpage": fetch_webpage_content,
     "Check whether a specific kernel configuration option is enabled in the kernel config file": read_config,
     "Get the crash report from kdump-gdbserver": getCrashReport,
-    "Create a new sub-agent with a specific system prompt and name": create_sub_agent,
-    "Instruct an existing sub-agent by its ID": chat_with_sub_agent,
-    "List all existing sub-agents with their IDs and names": list_sub_agents,
-    "Remove an existing sub-agent by its ID": remove_sub_agent,
+    "Manage sub-agents by creating, listing, or removing them": manage_sub_agent,
+    "Send a message to an existing sub-agent by ID": message_sub_agent,
 }

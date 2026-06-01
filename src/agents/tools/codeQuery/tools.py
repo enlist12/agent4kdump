@@ -297,6 +297,91 @@ def get_global_var(
     return response
 
 
+@timed_tool(timeout_seconds=45)
+def lookup_symbol(
+    name: Annotated[str, "Function, struct, global variable, or macro name to look up"],
+    kind: Annotated[str, "One of: auto, function, struct, global, macro"] = "auto",
+) -> Annotated[str, "Definition lookup result"]:
+    """
+    Look up a kernel symbol definition.
+
+    Use this for function bodies, struct definitions, globals, or macros.
+    Prefer a single high-signal symbol per call.
+    """
+    normalized_kind = kind.strip().lower()
+    if not name or not name.strip():
+        return "Error: name must be non-empty."
+
+    if normalized_kind not in {"auto", "function", "struct", "global", "macro"}:
+        return f"Error: unsupported kind '{kind}'."
+
+    query_name = name.strip()
+    if normalized_kind == "function":
+        return get_func_callback.func([query_name])
+    if normalized_kind == "struct":
+        return get_struct_callback.func([query_name])
+    if normalized_kind in {"global", "macro"}:
+        return get_global_var.func([query_name])
+
+    if query_name.startswith("struct "):
+        return get_struct_callback.func([query_name])
+    if query_name.isupper():
+        return get_global_var.func([query_name])
+
+    function_result = get_func_callback.func([query_name])
+    if "is not found" not in function_result:
+        return function_result
+
+    global_result = get_global_var.func([query_name])
+    if "is not found" not in global_result:
+        return global_result
+
+    struct_result = get_struct_callback.func([query_name])
+    return struct_result
+
+
+@timed_tool(timeout_seconds=45)
+def lookup_callgraph(
+    name: Annotated[str, "Function name to inspect in the callgraph"],
+    direction: Annotated[str, "One of: callers, callees"] = "callers",
+    limit: Annotated[int, "Maximum number of callgraph entries to return"] = 20,
+) -> Annotated[str, "Caller or callee relationships"]:
+    """
+    Look up callers or callees for a function.
+
+    Use callers to find who invokes a function, or callees to find what it invokes.
+    """
+    normalized_direction = direction.strip().lower()
+    if not name or not name.strip():
+        return "Error: name must be non-empty."
+    if limit <= 0:
+        return "Error: limit must be greater than 0."
+    if normalized_direction not in {"callers", "callees"}:
+        return f"Error: unsupported direction '{direction}'."
+
+    result = (
+        get_caller_callback.func([name.strip()])
+        if normalized_direction == "callers"
+        else get_callee_callback.func([name.strip()])
+    )
+
+    lines = result.splitlines()
+    header = []
+    body = []
+    for line in lines:
+        if line.startswith("  ") or line.startswith("No "):
+            body.append(line)
+        else:
+            header.append(line)
+
+    if len(body) <= limit or (body and body[0].startswith("No ")):
+        return result
+
+    truncated = body[:limit]
+    remaining = len(body) - limit
+    return "\n".join(header + truncated + [f"  ... and {remaining} more."])
+
+
 def test_code_query_tools():
     """
     Test suite for CodeQuery tools.
