@@ -377,6 +377,7 @@ def render_pageindex_status(status: dict[str, Any]) -> None:
 
 def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]:
     from agents.analyze_agent import RootCauseAnalysisResult, runAnalyzeAgent
+    from agents.schemas import CrashFingerprint
     from agents.search_agent import KnownBugAnalysisResult, parse_search_results, runSearchAgent
     from agents.tools.gdbTools import getCrashReport
 
@@ -394,7 +395,10 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
             is_known_bug=False,
             evidence=f"Known-bug search failed and was skipped: {exc}",
             matched_url=[],
-            extra_info="Continuing with root cause analysis without known-bug context.",
+            crash_fingerprint=CrashFingerprint(
+                fault_type="unknown",
+                crash_function="unknown",
+            ),
         )
     if not isinstance(result, KnownBugAnalysisResult):
         main_log.warning(
@@ -404,7 +408,10 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
             is_known_bug=False,
             evidence="Known-bug search returned no structured result and was skipped.",
             matched_url=[],
-            extra_info="Continuing with root cause analysis without known-bug context.",
+            crash_fingerprint=CrashFingerprint(
+                fault_type="unknown",
+                crash_function="unknown",
+            ),
         )
 
     parsed_search = parse_search_results(result)

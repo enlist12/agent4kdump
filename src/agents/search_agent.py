@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage
 from typing import Optional, List
 from uuid import uuid4
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from agents.tools import CUSTOM_AGENT_TOOLS, CODEQUERY_TOOLS
 from agents.tools.commandTools import build_shell_middleware
 from langfuse.langchain import CallbackHandler
@@ -92,7 +93,15 @@ Review rules:
 def create_search_agent():
     """Create the search agent with configured tools and prompts."""
     llm = get_model()
-    memory = MemorySaver()
+    serde = JsonPlusSerializer(
+        allowed_msgpack_modules=[
+            ("agents.schemas", "KnownBugAnalysisResult"),
+            ("agents.schemas", "SearchReviewResult"),
+            ("agents.schemas", "CrashFingerprint"),
+            ("agents.schemas", "SearchQueryRecord"),
+        ]
+    )
+    memory = MemorySaver(serde=serde)
     tools = SEARCH_AGENT_TOOLS
 
     agent_graph = create_agent(
