@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileInput, KeyRound, Loader2, Save } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
-import { getEnvSettings, loadEnvFile, updateEnvSettings } from "../api/client";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { getEnvSettings, importEnvFile, loadEnvFile, updateEnvSettings } from "../api/client";
 import { platform } from "../platform/adapter";
 
 const fields = [
@@ -22,6 +22,7 @@ const fields = [
 ] as const;
 
 export function SettingsView() {
+  const envFileInputRef = useRef<HTMLInputElement | null>(null);
   const settingsQuery = useQuery({
     queryKey: ["env-settings"],
     queryFn: getEnvSettings,
@@ -32,6 +33,8 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [loadingEnv, setLoadingEnv] = useState(false);
   const [message, setMessage] = useState("");
+  const [selectedEnvFile, setSelectedEnvFile] = useState<File | null>(null);
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!settingsQuery.data) {
@@ -39,9 +42,10 @@ export function SettingsView() {
     }
     const next: Record<string, string> = {};
     for (const [key] of fields) {
-      next[key] = "";
+      next[key] = settingsQuery.data.values[key]?.value ?? "";
     }
     setValues(next);
+    setDirtyFields(new Set());
     setEnvPath(settingsQuery.data.path);
   }, [settingsQuery.data]);
 
@@ -52,12 +56,11 @@ export function SettingsView() {
     try {
       const payload: Record<string, string | null> = {};
       for (const [key] of fields) {
-        if (values[key]?.trim()) {
+        if (dirtyFields.has(key) && values[key]?.trim()) {
           payload[key] = values[key].trim();
         }
       }
       await updateEnvSettings(payload);
-      setValues(Object.fromEntries(fields.map(([key]) => [key, ""])));
       await settingsQuery.refetch();
       setMessage("Saved .env settings. New analysis sessions will use the updated environment.");
     } catch (cause) {
@@ -68,23 +71,35 @@ export function SettingsView() {
   }
 
   async function chooseEnvFile() {
+    setMessage("");
+    if (platform.kind === "browser") {
+      envFileInputRef.current?.click();
+      return;
+    }
     const path = await platform.pickPath("file");
     if (path) {
+      setSelectedEnvFile(null);
       setEnvPath(path);
     }
   }
 
   async function loadExistingEnv() {
-    if (!envPath.trim()) {
+    if (!envPath.trim() && !selectedEnvFile) {
       setMessage("Choose or enter an existing .env path first.");
       return;
     }
     setLoadingEnv(true);
     setMessage("");
     try {
-      await loadEnvFile(envPath.trim());
+      if (selectedEnvFile) {
+        await importEnvFile({
+          filename: selectedEnvFile.name,
+          content: await selectedEnvFile.text()
+        });
+      } else {
+        await loadEnvFile(envPath.trim());
+      }
       await settingsQuery.refetch();
-      setValues(Object.fromEntries(fields.map(([key]) => [key, ""])));
       setMessage("Loaded existing .env file. New analysis sessions will use this file.");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Failed to load .env file.");
@@ -108,8 +123,24 @@ export function SettingsView() {
         <div className="text-xs uppercase tracking-widest text-slate-500">Env File</div>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto]">
           <input
+            ref={envFileInputRef}
+            type="file"
+            accept=".env,text/plain"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              setSelectedEnvFile(file);
+              if (file) {
+                setEnvPath(file.name);
+              }
+            }}
+          />
+          <input
             value={envPath}
-            onChange={(event) => setEnvPath(event.target.value)}
+            onChange={(event) => {
+              setSelectedEnvFile(null);
+              setEnvPath(event.target.value);
+            }}
             className="a4k-input font-mono"
             placeholder="Select or type an existing .env file path"
           />
@@ -151,10 +182,13 @@ export function SettingsView() {
                 </div>
                 <input
                   value={values[key] ?? ""}
-                  onChange={(event) => setValues((state) => ({ ...state, [key]: event.target.value }))}
+                  onChange={(event) => {
+                    setValues((state) => ({ ...state, [key]: event.target.value }));
+                    setDirtyFields((state) => new Set(state).add(key));
+                  }}
                   className="a4k-input"
-                  placeholder={current?.configured ? "Leave blank to keep current value" : placeholder}
-                  type={key.includes("KEY") || key.includes("SECRET") ? "password" : "text"}
+                  placeholder={current?.configured ? "Loaded from active .env" : placeholder}
+                  type="text"
                 />
               </label>
             );

@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { getSession, listSessions } from "./api/client";
-import { mockSession } from "./api/mock";
 import { AppLayout } from "./components/AppLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { SettingsView } from "./pages/SettingsView";
@@ -20,15 +19,15 @@ export function App() {
     queryFn: listSessions
   });
 
-  const selectedSessionId = activeSessionId ?? sessionsQuery.data?.[0]?.id ?? mockSession.id;
+  const selectedSessionId = activeSessionId ?? sessionsQuery.data?.[0]?.id ?? null;
   const sessionQuery = useQuery({
     queryKey: ["session", selectedSessionId],
-    queryFn: () => getSession(selectedSessionId),
-    enabled: activeTab !== "dashboard"
+    queryFn: () => getSession(selectedSessionId as string),
+    enabled: activeTab !== "dashboard" && Boolean(selectedSessionId)
   });
 
   const session = useMemo(
-    () => sessionQuery.data ?? sessionsQuery.data?.find((item) => item.id === selectedSessionId) ?? mockSession,
+    () => sessionQuery.data ?? sessionsQuery.data?.find((item) => item.id === selectedSessionId) ?? null,
     [selectedSessionId, sessionQuery.data, sessionsQuery.data]
   );
 
@@ -36,12 +35,12 @@ export function App() {
     <AppLayout
       activeTab={activeTab}
       onTabChange={setActiveTab}
-      sessionName={session.name}
-      status={session.status}
+      sessionName={session?.name ?? "No session selected"}
+      status={session?.status ?? "idle"}
     >
       {activeTab === "dashboard" ? (
         <Dashboard
-          sessions={sessionsQuery.data ?? [mockSession]}
+          sessions={sessionsQuery.data ?? []}
           onOpenAnalysis={(sessionId) => {
             setActiveSessionId(sessionId);
             setActiveTab("analysis");
@@ -55,8 +54,12 @@ export function App() {
         />
       ) : activeTab === "settings" ? (
         <SettingsView />
-      ) : (
+      ) : session ? (
         <SessionDetailView session={session} />
+      ) : (
+        <div className="flex h-full items-center justify-center bg-slate-950 p-8 text-sm text-slate-500">
+          Create or select a session from the Dashboard first.
+        </div>
       )}
     </AppLayout>
   );

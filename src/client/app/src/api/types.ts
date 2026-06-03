@@ -78,6 +78,9 @@ export interface SessionResultPayload {
   parsed_search?: KnownBugAnalysisResult | null;
   parsed_analyze?: RootCauseAnalysisResult | null;
   pageindex_status?: Record<string, unknown> | null;
+  rag_context?: RagContextPayload | null;
+  taint_nodes?: TaintNodePayload[];
+  source_snippets?: SourceSnippetPayload[];
   report_markdown?: string | null;
 }
 
@@ -111,11 +114,18 @@ export interface UploadVmcoreResponse {
 export interface EnvVarStatus {
   configured: boolean;
   masked: string;
+  value?: string;
+  sensitive?: boolean;
 }
 
 export interface EnvSettingsResponse {
   path: string;
   values: Record<string, EnvVarStatus>;
+}
+
+export interface ImportEnvFilePayload {
+  filename?: string | null;
+  content: string;
 }
 
 export interface TaintNodePayload {
@@ -130,4 +140,20 @@ export interface TaintNodePayload {
   end: boolean;
   branch?: string | null;
   error?: string | null;
+}
+
+export interface RagContextPayload {
+  context?: string | null;
+  similar_cases?: Array<Record<string, unknown>>;
+  experience_hits?: Array<Record<string, unknown>>;
+  linux_background?: unknown;
+  [key: string]: unknown;
+}
+
+export interface SourceSnippetPayload {
+  file_name: string;
+  line: number;
+  function?: string | null;
+  label?: string | null;
+  content: string;
 }

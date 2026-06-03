@@ -41,6 +41,9 @@ class SessionResultPayload(BaseModel):
     parsed_search: dict[str, Any] | None = None
     parsed_analyze: dict[str, Any] | None = None
     pageindex_status: dict[str, Any] | None = None
+    rag_context: dict[str, Any] | None = None
+    taint_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    source_snippets: list[dict[str, Any]] = Field(default_factory=list)
     report_markdown: str | None = None
 
 
@@ -84,6 +87,8 @@ class UploadVmcoreResponse(BaseModel):
 class EnvVarStatus(BaseModel):
     configured: bool
     masked: str
+    value: str = ""
+    sensitive: bool = False
 
 
 class EnvSettingsResponse(BaseModel):
@@ -97,6 +102,11 @@ class UpdateEnvSettingsRequest(BaseModel):
 
 class LoadEnvFileRequest(BaseModel):
     path: str
+
+
+class ImportEnvFileRequest(BaseModel):
+    filename: str | None = None
+    content: str
 
 
 def utc_now() -> str:

@@ -412,7 +412,13 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
         on_stage("known_bug_search", "completed")
     if parsed_search["is_known_bug"]:
         main_log.info("Known bug found: %s", parsed_search.get("matched_url"))
-        return {"parsed_search": parsed_search, "parsed_analyze": None}
+        return {
+            "parsed_search": parsed_search,
+            "parsed_analyze": None,
+            "rag_context": None,
+            "taint_nodes": [],
+            "source_snippets": [],
+        }
 
     main_log.info("No known bug found, proceeding with root cause analysis...")
     rag_context_text = None
@@ -434,7 +440,7 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
 
     analyze_output = runAnalyzeAgent(
         rag_context=rag_context_text,
-        return_trace=bool(session.config.enable_rag and session.rag_retriever),
+        return_trace=True,
         on_stage=on_stage,
     )
     if isinstance(analyze_output, tuple):
@@ -467,7 +473,105 @@ def run_full_analysis(session: AnalysisSession, on_stage=None) -> dict[str, Any]
             except Exception as exc:
                 main_log.warning("Failed to persist RAG experience; continuing: %s", exc)
 
-    return {"parsed_search": parsed_search, "parsed_analyze": parsed_analyze}
+    taint_nodes = analyze_trace.get("taint_tree_nodes") or _build_client_taint_nodes(
+        analyze_trace.get("taint_chain") or []
+    )
+    source_snippets = _build_client_source_snippets(taint_nodes, parsed_analyze)
+
+    return {
+        "parsed_search": parsed_search,
+        "parsed_analyze": parsed_analyze,
+        "rag_context": rag_payload,
+        "taint_nodes": taint_nodes,
+        "source_snippets": source_snippets,
+    }
+
+
+def _build_client_taint_nodes(taint_chain: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for idx, item in enumerate(taint_chain):
+        nodes.append(
+            {
+                "id": f"taint_{idx + 1}",
+                "parent_id": f"taint_{idx}" if idx else None,
+                "status": "done",
+                "file_name": item.get("file_name") or "unknown",
+                "line": item.get("line") or 0,
+                "variable_name": item.get("variable_name") or "unknown",
+                "current_function": item.get("current_function") or "unknown",
+                "explain": item.get("explain") or "",
+                "end": bool(item.get("end")),
+                "branch": item.get("branch"),
+                "error": item.get("error"),
+            }
+        )
+    return nodes
+
+
+def _build_client_source_snippets(
+    taint_nodes: list[dict[str, Any]],
+    parsed_analyze: dict[str, Any],
+) -> list[dict[str, Any]]:
+    from agents.tools.fileTools import read_source
+
+    locations: list[dict[str, Any]] = []
+    for node in taint_nodes:
+        file_name = str(node.get("file_name") or "")
+        line = int(node.get("line") or 0)
+        if file_name and line > 0:
+            locations.append(
+                {
+                    "file_name": file_name,
+                    "line": line,
+                    "function": node.get("current_function") or "",
+                    "label": node.get("variable_name") or "",
+                }
+            )
+
+    crash_site = parsed_analyze.get("crash_site") or {}
+    if crash_site.get("file") and crash_site.get("line"):
+        locations.insert(
+            0,
+            {
+                "file_name": crash_site.get("file"),
+                "line": crash_site.get("line"),
+                "function": crash_site.get("function") or "",
+                "label": "crash site",
+            },
+        )
+
+    snippets: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for location in locations:
+        file_name = str(location["file_name"])
+        line = int(location["line"])
+        key = (file_name, line)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            content = str(
+                read_source.invoke(
+                    {
+                        "file_path": file_name,
+                        "line_number": line,
+                        "line_range": 12,
+                        "mode": "snippet",
+                    }
+                )
+            )
+        except Exception as exc:
+            content = f"Failed to read source snippet: {exc}"
+        snippets.append(
+            {
+                "file_name": file_name,
+                "line": line,
+                "function": location.get("function") or "",
+                "label": location.get("label") or "",
+                "content": content,
+            }
+        )
+    return snippets
 
 
 def render_search_results(parsed_result: dict[str, Any]) -> None:

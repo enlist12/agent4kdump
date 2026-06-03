@@ -16,6 +16,7 @@ from .schemas import (
     AnalysisSessionPayload,
     CreateSessionRequest,
     EnvSettingsResponse,
+    ImportEnvFileRequest,
     LoadEnvFileRequest,
     RunSessionRequest,
     UpdateEnvSettingsRequest,
@@ -24,7 +25,7 @@ from .schemas import (
     utc_now,
 )
 from .session_store import SessionStore
-from .env_settings import env_status, load_client_env, load_existing_env_file, write_env_values
+from .env_settings import env_status, import_env_file, load_client_env, load_existing_env_file, write_env_values
 
 
 store = SessionStore()
@@ -67,6 +68,14 @@ def load_env_file(request: LoadEnvFileRequest) -> EnvSettingsResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to load .env file: {exc}") from exc
+
+
+@app.post("/api/settings/env/import", response_model=EnvSettingsResponse)
+def import_env_file_from_browser(request: ImportEnvFileRequest) -> EnvSettingsResponse:
+    try:
+        return EnvSettingsResponse(**import_env_file(request.filename, request.content))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to import .env file: {exc}") from exc
 
 
 @app.get("/api/sessions", response_model=list[AnalysisSessionPayload])

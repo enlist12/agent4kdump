@@ -91,6 +91,7 @@ class AnalysisProcess:
 
     def run(self) -> Optional[RootCauseAnalysisResult]:
         self._final_result = None
+        self._last_trace = {}
         final_state = self._graph.invoke(
             {
                 "messages": [],
@@ -117,6 +118,7 @@ class AnalysisProcess:
         self._last_trace = {
             "crash_report": self._last_crash_report,
             "taint_chain": [item.model_dump() for item in taint_objects],
+            "taint_tree_nodes": self._last_trace.get("taint_tree_nodes", []),
             "tool_calls": tool_calls,
             "last_node": final_state.get("last_node", ""),
             "taint_tree_summary": final_state.get("taint_tree_summary", ""),
@@ -212,7 +214,10 @@ class AnalysisProcess:
             prepare_next_obj=self._fixup_column,
             join_text=self._join,
         )
-        primary_path, update_messages, tree_summary = runner.run(current, state["messages"])
+        primary_path, update_messages, tree_summary, tree_nodes = runner.run(
+            current, state["messages"]
+        )
+        self._last_trace["taint_tree_nodes"] = tree_nodes
         new_objects = primary_path[1:] if len(primary_path) > 1 else []
         if self.on_stage:
             self.on_stage("taint_analysis", "completed")

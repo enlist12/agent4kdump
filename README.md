@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><img alt="Python" src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white"></a>
+  <a href="#quick-start"><img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white"></a>
   <a href="#installation"><img alt="uv" src="https://img.shields.io/badge/Package%20Manager-uv-4B32C3"></a>
   <a href="#desktop-client"><img alt="Tauri" src="https://img.shields.io/badge/Desktop-Tauri%20%2B%20React-24C8DB?logo=tauri&logoColor=white"></a>
   <a href="#requirements"><img alt="Platform" src="https://img.shields.io/badge/Platform-Linux%20%2F%20WSL-2EA44F?logo=linux&logoColor=white"></a>

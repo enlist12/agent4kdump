@@ -178,7 +178,7 @@ export function SessionDetailView({ session }: { session: AnalysisSession }) {
 
             <div className="min-h-0 flex-1 overflow-hidden">
               {activeView === "overview" ? <RootCauseView session={session} /> : null}
-              {activeView === "taint" ? <TaintFlowGraph /> : null}
+              {activeView === "taint" ? <TaintFlowGraph nodes={session.results.taint_nodes ?? []} /> : null}
               {activeView === "rag" ? <RagContextView session={session} /> : null}
               {activeView === "source" ? <SourceViewer session={session} /> : null}
             </div>
@@ -194,4 +194,3 @@ export function SessionDetailView({ session }: { session: AnalysisSession }) {
     </div>
   );
 }
-

@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import json
 import sys
+from io import StringIO
 from pathlib import Path
+from re import sub
 
 from dotenv import dotenv_values, load_dotenv
 
@@ -112,6 +114,11 @@ def mask_value(value: str) -> str:
     return f"{value[:2]}{'*' * max(len(value) - 6, 4)}{value[-4:]}"
 
 
+def is_sensitive_key(key: str) -> bool:
+    upper = key.upper()
+    return any(marker in upper for marker in ["KEY", "SECRET", "TOKEN", "PASSWORD"])
+
+
 def env_status() -> dict:
     values = read_env_values()
     return {
@@ -120,6 +127,12 @@ def env_status() -> dict:
             key: {
                 "configured": bool(values.get(key)),
                 "masked": mask_value(values.get(key, "")),
+                "value": (
+                    mask_value(values.get(key, ""))
+                    if is_sensitive_key(key)
+                    else values.get(key, "")
+                ),
+                "sensitive": is_sensitive_key(key),
             }
             for key in ENV_KEYS
         },
@@ -167,3 +180,19 @@ def load_existing_env_file(path_value: str) -> dict:
     os.environ["AGENT4KDUMP_ENV_PATH"] = str(path)
     load_client_env()
     return env_status()
+
+
+def import_env_file(filename: str | None, content: str) -> dict:
+    dotenv_values(stream=StringIO(content))
+    safe_name = sub(r"[^A-Za-z0-9._-]+", "_", filename or ".env").strip("._") or "env"
+    if not safe_name.endswith(".env"):
+        safe_name = f"{safe_name}.env"
+
+    target_dir = (Path.cwd() / "cache/client_env").resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = (target_dir / safe_name).resolve()
+    if target_dir not in target_path.parents:
+        raise ValueError("Invalid .env import target path.")
+
+    target_path.write_text(content, encoding="utf-8")
+    return load_existing_env_file(str(target_path))

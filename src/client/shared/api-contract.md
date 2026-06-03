@@ -46,7 +46,10 @@ new session.
 ```
 
 Only allowlisted environment keys are persisted. Existing configured values are
-kept when omitted by the client.
+kept when omitted by the client. Sensitive keys such as `API_KEY`,
+`*_API_KEY`, `*_SECRET_KEY`, token and password fields are returned only as
+masked display values. Non-sensitive fields may be returned as plain display
+values so the Settings form can show the active `.env` content.
 
 `POST /api/settings/env/load` accepts an existing `.env` path and makes it the
 active environment file for the client:
@@ -59,3 +62,13 @@ active environment file for the client:
 
 The path is persisted in `cache/client_settings.json`, so the client keeps using
 the same `.env` after restart.
+
+`POST /api/settings/env/import` accepts browser-selected `.env` content and
+stores it under `cache/client_env/` before making it active:
+
+```json
+{
+  "filename": ".env",
+  "content": "MODEL_NAME=gpt-4o\nAPI_KEY=sk-...\n"
+}
+```

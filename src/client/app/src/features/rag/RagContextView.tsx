@@ -2,6 +2,10 @@ import type { AnalysisSession } from "../../api/types";
 
 export function RagContextView({ session }: { session: AnalysisSession }) {
   const status = session.results.pageindex_status ?? {};
+  const context = session.results.rag_context;
+  const similarCases = context?.similar_cases ?? context?.experience_hits ?? [];
+  const linuxBackground = context?.linux_background;
+  const contextText = context?.context;
 
   return (
     <div className="a4k-scrollbar h-full overflow-y-auto p-6">
@@ -13,19 +17,37 @@ export function RagContextView({ session }: { session: AnalysisSession }) {
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <section className="rounded-md border border-blue-500/20 bg-blue-500/5 p-5">
           <h3 className="text-sm font-semibold text-blue-200">Similar Cases</h3>
-          <div className="mt-4 rounded border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-400">
-            No structured similar-case payload has been emitted yet. The backend can map persisted RAG
-            cases here once it exposes the retrieval artifacts.
+          <div className="mt-4 space-y-3 text-sm text-slate-300">
+            {similarCases.length ? similarCases.map((item, index) => (
+              <pre key={index} className="overflow-auto rounded border border-slate-800 bg-slate-950/60 p-3 text-xs leading-5 text-slate-300">
+                {JSON.stringify(item, null, 2)}
+              </pre>
+            )) : (
+              <div className="rounded border border-slate-800 bg-slate-950/60 p-3 text-slate-500">
+                No similar cases were returned for this session.
+              </div>
+            )}
           </div>
         </section>
 
         <section className="rounded-md border border-slate-800 bg-slate-900/50 p-5">
           <h3 className="text-sm font-semibold text-slate-200">Linux Background</h3>
-          <div className="mt-4 rounded border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-400">
-            Background knowledge should stay separated from current-case evidence.
-          </div>
+          <pre className="mt-4 max-h-72 overflow-auto rounded border border-slate-800 bg-slate-950/60 p-3 text-xs leading-5 text-slate-300">
+            {linuxBackground ? (
+              typeof linuxBackground === "string" ? linuxBackground : JSON.stringify(linuxBackground, null, 2)
+            ) : "No Linux background payload was returned for this session."}
+          </pre>
         </section>
       </div>
+
+      <section className="mt-5 rounded-md border border-slate-800 bg-slate-900/60 p-5">
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
+          Retrieved Context
+        </h3>
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded border border-slate-800 bg-slate-950/60 p-3 text-xs leading-5 text-slate-300">
+          {contextText || "No RAG context has been emitted for this session."}
+        </pre>
+      </section>
 
       <section className="mt-5 rounded-md border border-slate-800 bg-slate-900/60 p-5">
         <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
@@ -43,4 +65,3 @@ export function RagContextView({ session }: { session: AnalysisSession }) {
     </div>
   );
 }
-

@@ -3,11 +3,6 @@ from .schemas import RootCauseAnalysisResult
 from typing import Callable, Optional
 
 
-def parse_analyze_results(result: RootCauseAnalysisResult) -> dict:
-    """Compatibility wrapper for existing callers."""
-    return result.model_dump()
-
-
 def runAnalyzeAgent(
     max_retries: int = 2,
     max_taint_steps: int = 6,

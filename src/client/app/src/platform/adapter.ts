@@ -3,6 +3,7 @@ type PickPathType = "file" | "dir";
 declare global {
   interface Window {
     __TAURI__?: unknown;
+    __TAURI_IPC__?: unknown;
   }
 }
 
@@ -11,6 +12,32 @@ export interface PlatformAdapter {
   pickPath: (type: PickPathType) => Promise<string | null>;
   openUrl: (url: string) => Promise<void>;
   getBaseUrl: () => string;
+}
+
+function isDesktopRuntime(): boolean {
+  return Boolean(window.__TAURI__ || window.__TAURI_IPC__);
+}
+
+export function getApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured) {
+    return configured;
+  }
+  if (isDesktopRuntime()) {
+    return "http://127.0.0.1:8000";
+  }
+  return window.location.origin;
+}
+
+export function getApiRequestBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured) {
+    return configured;
+  }
+  if (isDesktopRuntime()) {
+    return "http://127.0.0.1:8000";
+  }
+  return "";
 }
 
 async function desktopPickPath(type: PickPathType): Promise<string | null> {
@@ -28,10 +55,10 @@ async function desktopOpenUrl(url: string): Promise<void> {
 }
 
 export const platform: PlatformAdapter = {
-  kind: window.__TAURI__ ? "desktop" : "browser",
+  kind: isDesktopRuntime() ? "desktop" : "browser",
 
   async pickPath(type) {
-    if (window.__TAURI__) {
+    if (isDesktopRuntime()) {
       return desktopPickPath(type);
     }
     return window.prompt(
@@ -40,7 +67,7 @@ export const platform: PlatformAdapter = {
   },
 
   async openUrl(url) {
-    if (window.__TAURI__) {
+    if (isDesktopRuntime()) {
       await desktopOpenUrl(url);
       return;
     }
@@ -48,6 +75,6 @@ export const platform: PlatformAdapter = {
   },
 
   getBaseUrl() {
-    return import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+    return getApiBaseUrl();
   }
 };

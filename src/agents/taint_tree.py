@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 from uuid import uuid4
 
 from langchain_core.messages import AnyMessage
@@ -197,6 +197,29 @@ class TaintTree:
             lines.append(f"{prefix}- {node.node_id}: status={node.status};{branch} {obj}{note}")
         return "\n".join(lines)
 
+    def to_client_nodes(self) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = []
+        for node in sorted(self.nodes.values(), key=lambda item: item.sequence):
+            obj = node.taint_obj
+            payload.append(
+                {
+                    "id": node.node_id,
+                    "parent_id": node.parent_id,
+                    "status": node.status,
+                    "file_name": obj.file_name if obj else "unknown",
+                    "line": obj.line if obj else 0,
+                    "variable_name": obj.variable_name if obj else "unknown",
+                    "current_function": obj.current_function if obj else "unknown",
+                    "explain": obj.explain if obj else "",
+                    "end": bool(obj.end) if obj else False,
+                    "branch": (
+                        f"{node.branch.label}: {node.branch.assumption}" if node.branch else None
+                    ),
+                    "error": node.error,
+                }
+            )
+        return payload
+
 
 class TaintTreeRunner:
     """Run DFS taint analysis across conditional branches."""
@@ -228,7 +251,7 @@ class TaintTreeRunner:
         self,
         root_obj: TaintAnalysisObj,
         messages: list[AnyMessage],
-    ) -> tuple[list[TaintAnalysisObj], list[AnyMessage], str]:
+    ) -> tuple[list[TaintAnalysisObj], list[AnyMessage], str, list[dict[str, Any]]]:
         memory = MessageMemory()
         tree = TaintTree()
         root = tree.create_root(root_obj, memory.create_checkpoint(messages))
@@ -326,7 +349,7 @@ class TaintTreeRunner:
         primary_messages = (
             memory.restore(tree.get_node(leaf_id).checkpoint_id)[len(messages) :] if leaf_id else []
         )
-        return primary_path, primary_messages, tree.describe()
+        return primary_path, primary_messages, tree.describe(), tree.to_client_nodes()
 
     def _warn(self, memory: MessageMemory, node: TaintTreeNode, step: str, reason: str) -> None:
         node.error = reason

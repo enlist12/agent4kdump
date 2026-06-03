@@ -8,7 +8,7 @@ import {
   Settings,
   Terminal
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { platform } from "../platform/adapter";
 
 interface AppLayoutProps {
@@ -27,13 +27,34 @@ const navItems = [
   { id: "reports", label: "Reports", icon: BookOpen }
 ];
 
+function formatUptime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  return `${minutes}m ${seconds}s`;
+}
+
 export function AppLayout({
   children,
   activeTab,
   onTabChange,
-  sessionName = "demo_kernel_panic",
-  status = "running"
+  sessionName = "No session selected",
+  status = "idle"
 }: AppLayoutProps) {
+  const startedAt = useRef(Date.now());
+  const [uptimeSeconds, setUptimeSeconds] = useState(0);
+  const apiBaseUrl = useMemo(() => platform.getBaseUrl(), []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setUptimeSeconds(Math.floor((Date.now() - startedAt.current) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
       <aside className="flex w-16 shrink-0 flex-col items-center border-r border-border bg-slate-950 py-4">
@@ -84,12 +105,12 @@ export function AppLayout({
         <footer className="flex h-8 shrink-0 items-center justify-between border-t border-border bg-slate-950 px-4 text-[11px] text-slate-500">
           <div className="flex items-center gap-5">
             <span className="flex items-center gap-1">
-              <Terminal size={12} /> API: {platform.getBaseUrl()}
+              <Terminal size={12} /> API: {apiBaseUrl}
             </span>
             <span>Runtime: {platform.kind}</span>
           </div>
           <div className="flex items-center gap-5">
-            <span>Uptime: 12m 45s</span>
+            <span>Uptime: {formatUptime(uptimeSeconds)}</span>
             <span className="text-blue-400">v0.1.0</span>
           </div>
         </footer>
@@ -126,4 +147,3 @@ function NavIcon({
     </button>
   );
 }
-

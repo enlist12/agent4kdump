@@ -1,13 +1,14 @@
-import { mockEvents, mockSession } from "./mock";
 import type {
   AnalysisConfigPayload,
   AnalysisEvent,
   AnalysisSession,
   EnvSettingsResponse,
+  ImportEnvFilePayload,
   UploadVmcoreResponse
 } from "./types";
+import { getApiRequestBaseUrl } from "../platform/adapter";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = getApiRequestBaseUrl();
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -25,18 +26,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function listSessions(): Promise<AnalysisSession[]> {
-  try {
-    const sessions = await request<AnalysisSession[]>("/api/sessions");
-    return sessions.length ? sessions : [mockSession];
-  } catch {
-    return [mockSession];
-  }
+  return request<AnalysisSession[]>("/api/sessions");
 }
 
 export async function getSession(sessionId: string): Promise<AnalysisSession> {
-  if (sessionId === mockSession.id) {
-    return mockSession;
-  }
   return request<AnalysisSession>(`/api/sessions/${sessionId}`);
 }
 
@@ -83,6 +76,13 @@ export async function loadEnvFile(path: string): Promise<EnvSettingsResponse> {
   });
 }
 
+export async function importEnvFile(payload: ImportEnvFilePayload): Promise<EnvSettingsResponse> {
+  return request<EnvSettingsResponse>("/api/settings/env/import", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function uploadVmcore(
   file: File,
   onProgress?: (progress: number) => void
@@ -116,10 +116,7 @@ export function subscribeSessionEvents(
   sessionId: string,
   onEvent: (event: AnalysisEvent) => void
 ): () => void {
-  if (sessionId === mockSession.id || typeof EventSource === "undefined") {
-    mockEvents.forEach((event, index) => {
-      window.setTimeout(() => onEvent(event), index * 800);
-    });
+  if (typeof EventSource === "undefined") {
     return () => undefined;
   }
 

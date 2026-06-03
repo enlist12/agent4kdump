@@ -268,6 +268,9 @@ class AnalysisRunner:
             parsed_search=raw_results.get("parsed_search"),
             parsed_analyze=raw_results.get("parsed_analyze"),
             pageindex_status=analysis_session.pageindex_status,
+            rag_context=raw_results.get("rag_context"),
+            taint_nodes=raw_results.get("taint_nodes") or [],
+            source_snippets=raw_results.get("source_snippets") or [],
         )
         completed = self.store.update_session(
             session_id,
